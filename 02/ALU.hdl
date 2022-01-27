@@ -7,7 +7,7 @@
  * The ALU (Arithmetic Logic Unit).
  * Computes one of the following functions:
  * x+y, x-y, y-x, 0, 1, -1, x, y, -x, -y, !x, !y,
- * x+1, y+1, x-1, y-1, x&y, x|y on two 16-bit inputs, 
+ * x+1, y+1, x-1, y-1, x&y, x|y on two 16-bit inputs,
  * according to 6 input bits denoted zx,nx,zy,ny,f,no.
  * In addition, the ALU computes two 1-bit outputs:
  * if the ALU output == 0, zr is set to 1; otherwise zr is set to 0;
@@ -27,8 +27,8 @@
 // if (out < 0) set ng = 1
 
 CHIP ALU {
-    IN  
-        x[16], y[16],  // 16-bit inputs        
+    IN
+        x[16], y[16],  // 16-bit inputs
         zx, // zero the x input?
         nx, // negate the x input?
         zy, // zero the y input?
@@ -36,11 +36,44 @@ CHIP ALU {
         f,  // compute out = x + y (if 1) or x & y (if 0)
         no; // negate the out output?
 
-    OUT 
+    OUT
         out[16], // 16-bit output
         zr, // 1 if (out == 0), 0 otherwise
         ng; // 1 if (out < 0),  0 otherwise
 
     PARTS:
-   // Put you code here:
+      // Prepare
+      Not16(in=x, out=x-inv);
+      And16(a=x, b=x-inv, out=zero-16-bit);
+
+      // zx, zy
+      Mux16(a=x, b=zero-16-bit, sel=zx, out=x-zx);
+      Mux16(a=y, b=zero-16-bit, sel=zy, out=y-zy);
+
+      // nx, ny
+      Not16(in=x-zx, out=x-zx-inv);
+      Not16(in=y-zy, out=y-zy-inv);
+      Mux16(a=x-zx, b=x-zx-inv, sel=nx, out=x-final);
+      Mux16(a=y-zy, b=y-zy-inv, sel=ny, out=y-final);
+
+      // f
+      And16(a=x-final, b=y-final, out=x-and-y);
+      Add16(a=x-final, b=y-final, out=x-plus-y);
+      Mux16(a=x-and-y, b=x-plus-y, sel=f, out=out-f);
+
+      // no
+      Not16(in=out-f, out=out-f-inv);
+      Mux16(a=out-f, b=out-f-inv, sel=no, out=out-temp);
+      And16(a=out-temp, b=out-temp, out=out);
+
+      // ng
+      And16(a=out-f, b=out-f, out[15]=out-f-15);
+      Xor(a=out-f-15, b=no, out=ng);
+
+      // zr
+      And16(a=out-temp, b=out-temp, out[0..7]=out-temp-0-7, out[8..15]=out-temp-8-15);
+      Or8Way(in=out-temp-0-7, out=zr-0-7);
+      Or8Way(in=out-temp-8-15, out=zr-8-15);
+      Or(a=zr-0-7, b=zr-8-15, out=has-one);
+      Not(in=has-one, out=zr);
 }
