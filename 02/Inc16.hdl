@@ -13,5 +13,50 @@ CHIP Inc16 {
     OUT out[16];
 
     PARTS:
-   // Put you code here:
+    Not(in=in[0], out=out[0]);
+
+    Xor(a=in[1], b=in[0], out=out[1]);
+    And(a=in[1], b=in[0], out=carry2);
+
+    Xor(a=in[2], b=carry2, out=out[2]);
+    And(a=in[2], b=carry2, out=carry3);
+
+    Xor(a=in[3], b=carry3, out=out[3]);
+    And(a=in[3], b=carry3, out=carry4);
+
+    Xor(a=in[4], b=carry4, out=out[4]);
+    And(a=in[4], b=carry4, out=carry5);
+
+    Xor(a=in[5], b=carry5, out=out[5]);
+    And(a=in[5], b=carry5, out=carry6);
+
+    Xor(a=in[6], b=carry6, out=out[6]);
+    And(a=in[6], b=carry6, out=carry7);
+
+    Xor(a=in[7], b=carry7, out=out[7]);
+    And(a=in[7], b=carry7, out=carry8);
+
+    Xor(a=in[8], b=carry8, out=out[8]);
+    And(a=in[8], b=carry8, out=carry9);
+
+    Xor(a=in[9], b=carry9, out=out[9]);
+    And(a=in[9], b=carry9, out=carry10);
+
+    Xor(a=in[10], b=carry10, out=out[10]);
+    And(a=in[10], b=carry10, out=carry11);
+
+    Xor(a=in[11], b=carry11, out=out[11]);
+    And(a=in[11], b=carry11, out=carry12);
+
+    Xor(a=in[12], b=carry12, out=out[12]);
+    And(a=in[12], b=carry12, out=carry13);
+
+    Xor(a=in[13], b=carry13, out=out[13]);
+    And(a=in[13], b=carry13, out=carry14);
+
+    Xor(a=in[14], b=carry14, out=out[14]);
+    And(a=in[14], b=carry14, out=carry15);
+
+    Xor(a=in[15], b=carry15, out=out[15]);
+    And(a=in[15], b=carry15, out=carry16);
 }
