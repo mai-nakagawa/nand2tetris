@@ -5,8 +5,8 @@
 
 /**
  * Memory of 4K registers, each 16 bit-wide. Out holds the value
- * stored at the memory location specified by address. If load==1, then 
- * the in value is loaded into the memory location specified by address 
+ * stored at the memory location specified by address. If load==1, then
+ * the in value is loaded into the memory location specified by address
  * (the loaded value will be emitted to out from the next time step onward).
  */
 
@@ -15,5 +15,22 @@ CHIP RAM4K {
     OUT out[16];
 
     PARTS:
-    // Put your code here:
+    DMux8Way(in=true, sel=address[9..11], a=a, b=b, c=c, d=d, e=e, f=f, g=g, h=h);
+    And(a=a, b=load, out=load-a);
+    And(a=b, b=load, out=load-b);
+    And(a=c, b=load, out=load-c);
+    And(a=d, b=load, out=load-d);
+    And(a=e, b=load, out=load-e);
+    And(a=f, b=load, out=load-f);
+    And(a=g, b=load, out=load-g);
+    And(a=h, b=load, out=load-h);
+    RAM512(in=in, load=load-a, address=address[0..8], out=out-a);
+    RAM512(in=in, load=load-b, address=address[0..8], out=out-b);
+    RAM512(in=in, load=load-c, address=address[0..8], out=out-c);
+    RAM512(in=in, load=load-d, address=address[0..8], out=out-d);
+    RAM512(in=in, load=load-e, address=address[0..8], out=out-e);
+    RAM512(in=in, load=load-f, address=address[0..8], out=out-f);
+    RAM512(in=in, load=load-g, address=address[0..8], out=out-g);
+    RAM512(in=in, load=load-h, address=address[0..8], out=out-h);
+    Mux8Way16(a=out-a, b=out-b, c=out-c, d=out-d, e=out-e, f=out-f, g=out-g, h=out-h, sel=address[9..11], out=out);
 }
