@@ -1,21 +1,6 @@
 import sys
 from enum import Enum, auto
-
-
-def main():
-    parser = Parser(sys.argv[1])
-    code = Code()
-    while parser.hasMoreCommands():
-        print(f"line: {parser._lines[parser._lineno]}")
-        if parser.commandType() == _Command.C_COMMAND:
-            dest = code.dest(parser.dest())
-            comp = code.comp(parser.comp())
-            jump = code.jump(parser.jump())
-            print(f"111{comp}{dest}{jump}")
-        else:
-            print(f"parser.symbol: {parser.symbol()}")
-            print(f"0{int(parser.symbol()):015b}".format(int(parser.symbol()), 2))
-        parser.advance()
+from typing import Dict
 
 
 class _Command(Enum):
@@ -30,10 +15,8 @@ class Parser:
         with open(p) as f:
             self._lines = []
             for l in f.readlines():
-                l = l.strip()
+                l = l.split("//")[0].strip()
                 if not l:
-                    continue
-                if l.startswith("//"):
                     continue
                 self._lines.append(l)
 
@@ -55,7 +38,11 @@ class Parser:
             return _Command.C_COMMAND
 
     def symbol(self) -> str:
-        return self._lines[self._lineno][1:]
+        l = self._lines[self._lineno]
+        if l[0] == "@":
+            return l[1:]
+        else:
+            return l[1:-1]
 
     def dest(self) -> str:
         mnemonics = self._lines[self._lineno].split("=")
@@ -82,7 +69,6 @@ class Parser:
 
 class Code:
     def dest(self, mnemonic: str) -> str:
-        print(f"dest mnemonic: {mnemonic}")
         d1 = 0
         d2 = 0
         d3 = 0
@@ -93,11 +79,9 @@ class Code:
                 d2 = 1
             elif c == "M":
                 d3 = 1
-        print(f"dest returns: {d1}{d2}{d3}")
         return f"{d1}{d2}{d3}"
 
     def comp(self, mnemonic: str) -> str:
-        print(f"comp mnemonic: {mnemonic}")
         if mnemonic == "0":
             return "0101010"
         elif mnemonic == "1":
@@ -172,6 +156,87 @@ class Code:
             return "111"
         else:
             return "000"
+
+
+class SymbolTable:
+    def __init__(self):
+        self._table: Dict[str, int] = {
+            "SP": 0,
+            "LCL": 1,
+            "ARG": 2,
+            "THIS": 3,
+            "THAT": 4,
+            "R0": 0,
+            "R1": 1,
+            "R2": 2,
+            "R3": 3,
+            "R4": 4,
+            "R5": 5,
+            "R6": 6,
+            "R7": 7,
+            "R8": 8,
+            "R9": 9,
+            "R10": 10,
+            "R11": 11,
+            "R12": 12,
+            "R13": 13,
+            "R14": 14,
+            "R15": 15,
+            "SCREEN": 16384,
+            "KBD": 24576,
+        }
+
+    def addEntry(self, symbol: str, address: int) -> None:
+        self._table[symbol] = address
+
+    def contains(self, symbol: str) -> bool:
+        return symbol in self._table.keys()
+
+    def getAddress(self, symbol: str) -> int:
+        return self._table[symbol]
+
+
+def main():
+    input_file = sys.argv[1]
+    symbol_table = _first_pass(input_file)
+    _second_pass(input_file, symbol_table)
+
+
+def _first_pass(input_file: str) -> Dict[str, int]:
+    parser = Parser(input_file)
+    symbol_table = SymbolTable()
+    rom_addr = 0
+    while parser.hasMoreCommands():
+        if parser.commandType() == _Command.L_COMMAND:
+            symbol_table.addEntry(parser.symbol(), rom_addr)
+        else:
+            rom_addr += 1
+        parser.advance()
+    return symbol_table
+
+
+def _second_pass(input_file: str, symbol_table: Dict[str, int]) -> None:
+    parser = Parser(input_file)
+    code = Code()
+    next_ram_addr = 16
+    while parser.hasMoreCommands():
+        if parser.commandType() == _Command.C_COMMAND:
+            dest = code.dest(parser.dest())
+            comp = code.comp(parser.comp())
+            jump = code.jump(parser.jump())
+            print(f"111{comp}{dest}{jump}")
+        elif parser.commandType() == _Command.A_COMMAND:
+            s = parser.symbol()
+            if symbol_table.contains(s):
+                value = symbol_table.getAddress(s)
+            elif s[0] in "0123456789":
+                value = s
+            else:
+                symbol_table.addEntry(s, next_ram_addr)
+                value = next_ram_addr
+                next_ram_addr += 1
+            print("0{:015b}".format(int(value), 2))
+        parser.advance()
 
 
 if __name__ == "__main__":
