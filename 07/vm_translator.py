@@ -1,3 +1,4 @@
+import os
 import sys
 from enum import Enum, auto
 
@@ -12,6 +13,19 @@ class _Command(Enum):
     C_FUNCTION = auto()
     C_RETURN = auto()
     C_CALL = auto()
+
+
+_SEGMENT_TO_LABEL = {
+    "local": "LCL",
+    "argument": "ARG",
+    "this": "THIS",
+    "that": "THAT",
+}
+
+_SEGMENT_BASE = {
+    "pointer": 3,
+    "temp": 5,
+}
 
 
 class Parser:
@@ -41,6 +55,8 @@ class Parser:
             return _Command.C_ARITHMETIC
         elif l.startswith("push "):
             return _Command.C_PUSH
+        elif l.startswith("pop "):
+            return _Command.C_POP
 
     def arg1(self) -> str:
         args = self._lines[self._lineno].split(" ")
@@ -69,11 +85,11 @@ class CodeWriter:
             "D=A",
             "@SP",
             "M=D",
-            "",
         ]))
+        self._writer.write("\n")
 
     def setFileName(self, filename: str) -> None:
-        pass
+        self._filename = os.path.splitext(os.path.basename(filename))[0]
 
     def writeArithmetic(self, command: str) -> None:
         writelines = [f"// {command}"]
@@ -152,40 +168,100 @@ class CodeWriter:
         self._writer.write("\n")
 
     def writePushPop(self, command: _Command, segment: str, index: int) -> None:
+        writelines = []
         if command == _Command.C_PUSH:
-            self._writer.write("\n".join([
-                f"// push {index}",
+            writelines += [
+                f"// push {segment} {index}",
                 f"@{index}",
                 "D=A",
+            ]
+            if segment in ["temp", "pointer"]:
+                writelines += [
+                    f"@{_SEGMENT_BASE[segment] + index}",
+                    "D=M",
+                ]
+            elif segment == "static":
+                writelines += [
+                    f"@{self._filename}.{index}",
+                    "D=M",
+                ]
+            elif segment != "constant":
+                writelines += [
+                    f"@{_SEGMENT_TO_LABEL[segment]}",
+                    "A=M+D",
+                    "D=M",
+                ]
+            writelines += [
                 "@SP",
                 "A=M",
                 "M=D",
                 "@SP",
                 "M=M+1",
-                "",
-            ]))
+            ]
+        else:  # C_POP
+            writelines += [
+                f"// pop {segment} {index}",
+            ]
+            if segment in ["temp", "pointer"]:
+                writelines += [
+                    f"@{_SEGMENT_BASE[segment] + index}",
+                    "D=A",
+                ]
+            elif segment == "static":
+                writelines += [
+                    f"@{self._filename}.{index}",
+                    "D=A",
+                ]
+            else:
+                writelines += [
+                    f"@{index}",
+                    "D=A",
+                    f"@{_SEGMENT_TO_LABEL[segment]}",
+                    "D=M+D",
+                ]
+            writelines += [
+                "@SP",
+                "A=M",
+                "M=D",
+                "A=A-1",
+                "D=M",
+                "A=A+1",
+                "A=M",
+                "M=D",
+                "@SP",
+                "M=M-1",
+            ]
+        self._writer.write("\n".join(writelines))
+        self._writer.write("\n")
 
     def close(self) -> None:
         close(self._writer)
 
 
 def main():
-    input_file = sys.argv[1]
+    input_file_or_dir = sys.argv[1]
     output_file = sys.argv[2]
-    parser = Parser(input_file)
+    if os.path.isfile(input_file_or_dir):
+        input_files = [input_file_or_dir]
+    else:
+        dir = input_file_or_dir
+        input_files = [f"{dir}/{f}" for f in os.listdir(dir) if f.endswith("vm")]
     code_writer = CodeWriter(output_file)
-    while parser.hasMoreCommands():
-        command_type = parser.commandType()
-        if command_type == _Command.C_ARITHMETIC:
-            arg1 = parser.arg1()
-            print(f"arg1:{arg1}")
-            code_writer.writeArithmetic(arg1)
-        elif command_type == _Command.C_PUSH:
-            arg1 = parser.arg1()
-            arg2 = parser.arg2()
-            print(f"arg1:{arg1} arg2:{arg2}")
-            code_writer.writePushPop(_Command.C_PUSH, arg1, int(arg2))
-        parser.advance()
+    for input_file in input_files:
+        parser = Parser(input_file)
+        code_writer.setFileName(input_file)
+        while parser.hasMoreCommands():
+            command_type = parser.commandType()
+            if command_type == _Command.C_ARITHMETIC:
+                arg1 = parser.arg1()
+                print(f"arg1:{arg1}")
+                code_writer.writeArithmetic(arg1)
+            elif command_type in [_Command.C_PUSH, _Command.C_POP]:
+                arg1 = parser.arg1()
+                arg2 = parser.arg2()
+                print(f"arg1:{arg1} arg2:{arg2}")
+                code_writer.writePushPop(command_type, arg1, int(arg2))
+            parser.advance()
 
 
 if __name__ == "__main__":
