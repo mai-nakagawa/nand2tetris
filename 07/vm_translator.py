@@ -50,7 +50,6 @@ class Parser:
 
     def commandType(self) -> _Command:
         l = self._lines[self._lineno]
-        print(f"l:{l}")
         if l in ["add", "sub", "neg", "eq", "gt", "lt", "and", "or", "not"]:
             return _Command.C_ARITHMETIC
         elif l.startswith("push "):
@@ -60,7 +59,6 @@ class Parser:
 
     def arg1(self) -> str:
         args = self._lines[self._lineno].split(" ")
-        print(f"arg1() args:{args}")
         if self.commandType() == _Command.C_ARITHMETIC:
             return args[0]
         else:
@@ -68,7 +66,6 @@ class Parser:
 
     def arg2(self) -> str:
         args = self._lines[self._lineno].split(" ")
-        print(f"arg2() args:{args}")
         return args[2]
 
 
@@ -94,7 +91,6 @@ class CodeWriter:
     def writeArithmetic(self, command: str) -> None:
         writelines = [f"// {command}"]
         if command in ["neg", "not"]:
-            print(f"command: {command}")
             if command == "not":
                 writelines += [
                     "@SP",
@@ -254,12 +250,10 @@ def main():
             command_type = parser.commandType()
             if command_type == _Command.C_ARITHMETIC:
                 arg1 = parser.arg1()
-                print(f"arg1:{arg1}")
                 code_writer.writeArithmetic(arg1)
             elif command_type in [_Command.C_PUSH, _Command.C_POP]:
                 arg1 = parser.arg1()
                 arg2 = parser.arg2()
-                print(f"arg1:{arg1} arg2:{arg2}")
                 code_writer.writePushPop(command_type, arg1, int(arg2))
             parser.advance()
 
