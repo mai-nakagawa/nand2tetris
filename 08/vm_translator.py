@@ -58,10 +58,16 @@ class Parser:
             return _Command.C_POP
         elif l.startswith("label "):
             return _Command.C_LABEL
-        elif l.startswith("if-goto"):
+        elif l.startswith("if-goto "):
             return _Command.C_IF
-        elif l.startswith("goto"):
+        elif l.startswith("goto "):
             return _Command.C_GOTO
+        elif l.startswith("function "):
+            return _Command.C_FUNCTION
+        elif l.startswith("return"):
+            return _Command.C_RETURN
+        elif l.startswith("call "):
+            return _Command.C_CALL
 
     def arg1(self) -> str:
         args = self._lines[self._lineno].split(" ")
@@ -264,6 +270,97 @@ class CodeWriter:
         ]))
         self._writer.write("\n")
 
+    def writeCall(self, functionName: str, numArgs: int) -> None:
+        pass
+
+    def writeFunction(self, functionName: str, numLocals: int) -> None:
+        writelines = [
+            f"// function {functionName} {numLocals}",
+        ]
+        if numLocals > 0:
+            writelines += [
+                "@LCL",
+                "A=M",
+                "M=0",
+            ]
+        for _ in range(numLocals - 1):
+            writelines += [
+                "A=A+1",
+                "M=0",
+            ]
+        self._writer.write("\n".join(writelines))
+        self._writer.write("\n")
+
+    def writeReturn(self) -> None:
+        writelines = [
+            f"// return",
+
+            # FRAME (R13) = LCL
+            "@LCL",
+            "D=M",
+            "@R13",
+            "M=D",
+
+            # RET (R14) = *(FRAME - 5)
+            "@5",
+            "A=D-A",
+            "D=M",
+            "@R14",
+            "M=D",
+
+            # *ARG = pop()
+            "@SP",
+            "A=M-1",
+            "D=M",
+            "@ARG",
+            "A=M",
+            "M=D",
+
+            # SP = ARG + 1
+            "@ARG",
+            "D=M",
+            "@SP",
+            "M=D+1",
+
+            # THAT = *(FRAME-1)
+            "@R13",
+            "A=M-1",
+            "D=M",
+            "@THAT",
+            "M=D",
+
+            # THIS = *(FRAME-2)
+            "@R13",
+            "A=M-1",
+            "A=A-1",
+            "D=M",
+            "@THIS",
+            "M=D",
+
+            # ARG = *(FRAME-3)
+            "@R13",
+            "A=M-1",
+            "A=A-1",
+            "A=A-1",
+            "D=M",
+            "@ARG",
+            "M=D",
+
+            # LCL = *(FRAME-4)
+            "@R13",
+            "A=M-1",
+            "A=A-1",
+            "A=A-1",
+            "A=A-1",
+            "D=M",
+            "@LCL",
+            "M=D",
+
+            # TODO; goto RET
+        ]
+        self._writer.write("\n".join(writelines))
+        self._writer.write("\n")
+
     def close(self) -> None:
         self._writer.close()
 
@@ -298,6 +395,16 @@ def main():
             elif command_type == _Command.C_GOTO:
                 arg1 = parser.arg1()
                 code_writer.writeGoto(arg1)
+            elif command_type == _Command.C_FUNCTION:
+                arg1 = parser.arg1()
+                arg2 = parser.arg2()
+                code_writer.writeFunction(arg1, int(arg2))
+            elif command_type == _Command.C_RETURN:
+                code_writer.writeReturn()
+            elif command_type == _Command.C_CALL:
+                arg1 = parser.arg1()
+                arg2 = parser.arg2()
+                code_writer.writeCall(arg1, arg2)
             parser.advance()
     code_writer.close()
 
