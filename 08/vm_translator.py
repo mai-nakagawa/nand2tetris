@@ -56,6 +56,12 @@ class Parser:
             return _Command.C_PUSH
         elif l.startswith("pop "):
             return _Command.C_POP
+        elif l.startswith("label "):
+            return _Command.C_LABEL
+        elif l.startswith("if-goto"):
+            return _Command.C_IF
+        elif l.startswith("goto"):
+            return _Command.C_GOTO
 
     def arg1(self) -> str:
         args = self._lines[self._lineno].split(" ")
@@ -76,6 +82,7 @@ class CodeWriter:
         self._initialize_sp()
 
     def _initialize_sp(self) -> None:
+        # TODO: move it to `writeInit`
         self._writer.write("\n".join([
             "// initialize SP",
             "@256",
@@ -230,8 +237,35 @@ class CodeWriter:
         self._writer.write("\n".join(writelines))
         self._writer.write("\n")
 
+    def writeLabel(self, label: str) -> None:
+        self._writer.write("\n".join([
+            f"// label {label}",
+            f"({self._filename}.{label})",
+        ]))
+        self._writer.write("\n")
+
+    def writeGoto(self, label: str) -> None:
+        self._writer.write("\n".join([
+            f"// goto {label}",
+            f"@{self._filename}.{label}",
+            "0;JMP",
+        ]))
+        self._writer.write("\n")
+
+    def writeIf(self, label: str) -> None:
+        self._writer.write("\n".join([
+            f"// if-goto {label}",
+            "@SP",
+            "M=M-1",
+            "A=M",
+            "D=M",
+            f"@{self._filename}.{label}",
+            "D;JNE",
+        ]))
+        self._writer.write("\n")
+
     def close(self) -> None:
-        close(self._writer)
+        self._writer.close()
 
 
 def main():
@@ -255,7 +289,17 @@ def main():
                 arg1 = parser.arg1()
                 arg2 = parser.arg2()
                 code_writer.writePushPop(command_type, arg1, int(arg2))
+            elif command_type == _Command.C_LABEL:
+                arg1 = parser.arg1()
+                code_writer.writeLabel(arg1)
+            elif command_type == _Command.C_IF:
+                arg1 = parser.arg1()
+                code_writer.writeIf(arg1)
+            elif command_type == _Command.C_GOTO:
+                arg1 = parser.arg1()
+                code_writer.writeGoto(arg1)
             parser.advance()
+    code_writer.close()
 
 
 if __name__ == "__main__":
