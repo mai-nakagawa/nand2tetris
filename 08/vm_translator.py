@@ -85,40 +85,28 @@ class CodeWriter:
     def __init__(self, file: str):
         self._writer = open(file, "w")
         self._label_id = 1
-        self._initialize_sp()
-
-    def _initialize_sp(self) -> None:
-        # TODO: move it to `writeInit`
-        self._writer.write("\n".join([
-            "// initialize SP",
-            "@256",
-            "D=A",
-            "@SP",
-            "M=D",
-        ]))
-        self._writer.write("\n")
 
     def setFileName(self, filename: str) -> None:
         self._filename = os.path.splitext(os.path.basename(filename))[0]
 
     def writeArithmetic(self, command: str) -> None:
-        writelines = [f"// {command}"]
+        writelines = []
         if command in ["neg", "not"]:
             if command == "not":
                 writelines += [
-                    "@SP",
+                    f"@SP  // {command}",
                     "A=M-1",
                     "M=!M",
                 ]
             else:  # neg
                 writelines += [
-                    "@SP",
+                    f"@SP  // {command}",
                     "A=M-1",
                     "M=-M",
                 ]
         else:
             writelines += [
-                "@SP",
+                f"@SP  // {command}",
                 "M=M-1",
                 "A=M",
                 "D=M",
@@ -177,11 +165,9 @@ class CodeWriter:
         self._writer.write("\n")
 
     def writePushPop(self, command: _Command, segment: str, index: int) -> None:
-        writelines = []
         if command == _Command.C_PUSH:
-            writelines += [
-                f"// push {segment} {index}",
-                f"@{index}",
+            writelines = [
+                f"@{index}  // push {segment} {index}",
                 "D=A",
             ]
             if segment in ["temp", "pointer"]:
@@ -208,22 +194,19 @@ class CodeWriter:
                 "M=M+1",
             ]
         else:  # C_POP
-            writelines += [
-                f"// pop {segment} {index}",
-            ]
             if segment in ["temp", "pointer"]:
-                writelines += [
-                    f"@{_SEGMENT_BASE[segment] + index}",
+                writelines = [
+                    f"@{_SEGMENT_BASE[segment] + index}  // pop {segment} {index}",
                     "D=A",
                 ]
             elif segment == "static":
-                writelines += [
-                    f"@{self._filename}.{index}",
+                writelines = [
+                    f"@{self._filename}.{index}  // pop {segment} {index}",
                     "D=A",
                 ]
             else:
-                writelines += [
-                    f"@{index}",
+                writelines = [
+                    f"@{index}  // pop {segment} {index}",
                     "D=A",
                     f"@{_SEGMENT_TO_LABEL[segment]}",
                     "D=M+D",
@@ -243,25 +226,33 @@ class CodeWriter:
         self._writer.write("\n".join(writelines))
         self._writer.write("\n")
 
+    def writeInit(self) -> None:
+        self._writer.write("\n".join([
+            # SP=256
+            "@256  // initialize",
+            "D=A",
+            "@SP",
+            "M=D",
+        ]))
+        self._writer.write("\n")
+        self.writeCall("Sys.init", 0)
+
     def writeLabel(self, label: str) -> None:
         self._writer.write("\n".join([
-            f"// label {label}",
-            f"({self._filename}.{label})",
+            f"({self._filename}.{label})  // label {label}",
         ]))
         self._writer.write("\n")
 
     def writeGoto(self, label: str) -> None:
         self._writer.write("\n".join([
-            f"// goto {label}",
-            f"@{self._filename}.{label}",
+            f"@{self._filename}.{label}  // goto {label}",
             "0;JMP",
         ]))
         self._writer.write("\n")
 
     def writeIf(self, label: str) -> None:
         self._writer.write("\n".join([
-            f"// if-goto {label}",
-            "@SP",
+            f"@SP  // if-goto {label}",
             "M=M-1",
             "A=M",
             "D=M",
@@ -271,32 +262,98 @@ class CodeWriter:
         self._writer.write("\n")
 
     def writeCall(self, functionName: str, numArgs: int) -> None:
-        pass
+        self._writer.write("\n".join([
+            # push return-address
+            f"@{functionName}.RETURN_ADDRESS.{self._label_id}  // call {functionName} {numArgs}",
+            "D=A",
+            "@SP",
+            "A=M",
+            "M=D",
+            "@SP",
+            "M=M+1",
+
+            # push LCL
+            f"@LCL",
+            "D=M",
+            "@SP",
+            "A=M",
+            "M=D",
+            "@SP",
+            "M=M+1",
+
+            # push ARG
+            f"@ARG",
+            "D=M",
+            "@SP",
+            "A=M",
+            "M=D",
+            "@SP",
+            "M=M+1",
+
+            # push THIS
+            f"@THIS",
+            "D=M",
+            "@SP",
+            "A=M",
+            "M=D",
+            "@SP",
+            "M=M+1",
+
+            # push THAT
+            f"@THAT",
+            "D=M",
+            "@SP",
+            "A=M",
+            "M=D",
+            "@SP",
+            "M=M+1",
+
+            # ARG = SP - n - 5
+            "@SP",
+            "D=M",
+            f"@{numArgs}",
+            "D=D-A",
+            "@5",
+            "D=D-A",
+            "@ARG",
+            "M=D",
+
+            # LCL = SP
+            "@SP",
+            "D=M",
+            "@LCL",
+            "M=D",
+
+            # goto f
+            f"@{functionName}",
+            "0;JMP",
+
+            # (return-address)
+            f"({functionName}.RETURN_ADDRESS.{self._label_id})",
+        ]))
+        self._writer.write("\n")
+        self._label_id += 1
 
     def writeFunction(self, functionName: str, numLocals: int) -> None:
         writelines = [
-            f"// function {functionName} {numLocals}",
+            f"({functionName}) // function {functionName} {numLocals}",
         ]
-        if numLocals > 0:
+        for _ in range(numLocals):
             writelines += [
-                "@LCL",
+                # push 0
+                "@SP",
                 "A=M",
                 "M=0",
-            ]
-        for _ in range(numLocals - 1):
-            writelines += [
-                "A=A+1",
-                "M=0",
+                "@SP",
+                "M=M+1",
             ]
         self._writer.write("\n".join(writelines))
         self._writer.write("\n")
 
     def writeReturn(self) -> None:
         writelines = [
-            f"// return",
-
             # FRAME (R13) = LCL
-            "@LCL",
+            "@LCL  // return",
             "D=M",
             "@R13",
             "M=D",
@@ -357,6 +414,9 @@ class CodeWriter:
             "M=D",
 
             # TODO; goto RET
+            "@R14",
+            "A=M",
+            "0;JMP",
         ]
         self._writer.write("\n".join(writelines))
         self._writer.write("\n")
@@ -374,6 +434,7 @@ def main():
         dir = input_file_or_dir
         input_files = [f"{dir}/{f}" for f in os.listdir(dir) if f.endswith("vm")]
     code_writer = CodeWriter(output_file)
+    code_writer.writeInit()
     for input_file in input_files:
         parser = Parser(input_file)
         code_writer.setFileName(input_file)
@@ -404,7 +465,7 @@ def main():
             elif command_type == _Command.C_CALL:
                 arg1 = parser.arg1()
                 arg2 = parser.arg2()
-                code_writer.writeCall(arg1, arg2)
+                code_writer.writeCall(arg1, int(arg2))
             parser.advance()
     code_writer.close()
 
