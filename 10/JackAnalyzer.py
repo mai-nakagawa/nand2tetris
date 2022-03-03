@@ -1,8 +1,8 @@
 import os
 import re
 import sys
-from enum import Enum, auto
-from typing import List, Tuple
+from enum import Enum
+from typing import List
 
 
 STRING_AND_OTHERS = re.compile('([^"]*)"([^"]*)"([^"]*)')
@@ -28,9 +28,7 @@ class JackTokenizer:
                 lines.append(l)
         s = " ".join(lines)
         s = self._remove_comments(s)
-        print(f"without_comments:{s}")
         s_list = self._split_by_double_quotes(s)
-        print(f"split_by_double_quotes:{s_list}")
         for s in s_list:
             self._tokens += self._to_tokens(s)
 
@@ -53,7 +51,6 @@ class JackTokenizer:
         return s_list
 
     def _to_tokens(self, s: str) -> List[str]:
-        print(f"s:{s}")
         s = s.strip()
         tokens = []
         if not s:
@@ -98,23 +95,19 @@ class JackTokenizer:
             split = s.split(" ")
             delimiter = " "
         else:
-            print(f"token:{s}")
             if s in ["class", "constructor", 'function', 'method', 'field', 'static', 'var',
                         'int', 'char', 'boolean', 'void', 'true', 'false', 'null', 'this', 'let',
                         'do', 'if', 'else', 'while', 'return']:
                 tokens.append((s, _TokenType.KEYWORD))
             elif s in ['{', '}', '(', ')', '[', ']', '.',  ',', ';', '+',
                         '-', '*', '/', '&', '|', '<', '>', '=', '~']:
-                print(f"adding symbol:{s}")
                 tokens.append((s, _TokenType.SYMBOL))
             elif INTEGERS.match(s):
                 tokens.append((int(s), _TokenType.INT_CONST))
             else:
-                print(f"adding identifier:{s}")
                 tokens.append((s, _TokenType.IDENTIFIER))
             return tokens
         for i, new_s in enumerate(split):
-            print(f"i:{i} new_s:{new_s} delimiter:{delimiter}")
             if i != 0 and delimiter != " ":
                 tokens.append((delimiter, _TokenType.SYMBOL))
             tokens += self._to_tokens(new_s)
@@ -156,10 +149,272 @@ class JackTokenizer:
 
 
 class CompilationEngine:
-    pass
+    def __init__(self, input_file: str, output_file: str):
+        self._tokenizer = JackTokenizer(input_file)
+        
+        self._lines = ["<class>"]
+        self.compileClass()
+        self._lines += ["</class>"]
+        with open(output_file, "w") as writer:
+            writer.write("\n".join(self._lines))
+
+    def compileClass(self) -> None:
+        self._tokenizer.advance()  # skip `class`
+        class_name = self._tokenizer.symbol()
+        self._tokenizer.advance()
+        self._tokenizer.advance()  # skip `{`
+        self._lines += [
+            f"<keyword> class </keyword>",
+            f"<identifier> {class_name} </identifier>",
+            "<symbol> { </symbol>",
+        ]
+        
+        while self._tokenizer.keyword() in ["static", "field"]:
+            self._lines += ["<classVarDec>"]
+            self.compileClassVarDec()
+            self._lines += ["</classVarDec>"]
+
+        while self._tokenizer.keyword() in ["constructor", "function", "method"]:
+            self._lines += ["<subroutineDec>"]
+            self.compileSubroutine()
+            self._lines += ["</subroutineDec>"]
+
+        self._lines += ["<symbol> } </symbol>"]
+        self._tokenizer.advance()
+
+
+    def compileClassVarDec(self) -> None:
+        static_or_field = self._tokenizer.keyword()
+        self._lines += [f"<keyword> {static_or_field} </keyword>"]
+        self._tokenizer.advance()
+        self._compileType()
+        var_name = self._tokenizer.keyword()
+        self._lines += [f"<identifier> {var_name} </identifier>"]
+        self._tokenizer.advance()
+        while self._tokenizer.symbol() == ",":
+            self._tokenizer.advance()  # skip `,`
+            self._lines += [
+                "<symbol> , </symbol>",
+                f"<identifier> {self._tokenizer.identifier()} </identifier>",
+            ]
+            self._tokenizer.advance()  # skip `,`
+        self._tokenizer.advance()  # skip `;`
+        self._lines += ["<symbol> ; </symbol>"]
+
+    def _compileType(self) -> None:
+        if self._tokenizer.tokenType() == _TokenType.KEYWORD:
+            self._lines += [f"<keyword> {self._tokenizer.keyword()} </keyword>"]
+        else:
+            self._lines += [f"<identifier> {self._tokenizer.identifier()} </identifier>"]
+        self._tokenizer.advance()
+
+    def compileSubroutine(self) -> None:
+        constructor_function_or_method = self._tokenizer.keyword()
+        self._tokenizer.advance()
+        return_type = self._tokenizer.keyword()
+        self._tokenizer.advance()
+        subroutine_name = self._tokenizer.identifier()
+        self._tokenizer.advance()
+        self._tokenizer.advance()  # skip `(`
+        self._lines += [
+            f"<keyword> {constructor_function_or_method} </keyword>",
+            f"<keyword> {return_type} </keyword>",
+            f"<identifier> {subroutine_name} </identifier>",
+            "<symbol> ( </symbol>",
+            "<parameterList>",
+        ]
+        self.compileParameterList()
+        self._tokenizer.advance()  # skip `)`
+        self._tokenizer.advance()  # skip `{`
+        
+        self._lines += [
+            "</parameterList>",
+            "<symbol> ) </symbol>",
+            "<subroutineBody>",
+            "<symbol> { </symbol>",
+        ]
+
+        while self._tokenizer.keyword() == "var":
+            self._lines += ["<varDec>"]
+            self.compileVarDec()
+            self._lines += ["</varDec>"]
+
+        self.compileStatements()
+
+        self._tokenizer.advance()  # skip `}`
+        self._lines += [
+            "<symbol> } </symbol>",
+            "</subroutineBody>",
+        ]
+
+    def compileParameterList(self) -> None:
+        pass
+
+    def compileVarDec(self) -> None:
+        self._lines += ["<keyword> var </keyword>"]
+        self._tokenizer.advance()  # skip `var`
+        self._compileType()
+        var_name = self._tokenizer.identifier()
+        self._tokenizer.advance()
+        self._lines += [f"<identifier> {var_name} </identifier>"]
+        while self._tokenizer.symbol() == ",":
+            self._tokenizer.advance()  # skip `,`
+            self._lines += [
+                "<symbol> , </symbol>",
+                f"<identifier> {self._tokenizer.identifier()} </identifier>",
+            ]
+            self._tokenizer.advance()
+        self._lines += ["<symbol> ; </symbol>"]
+        self._tokenizer.advance()
+
+    def compileStatements(self) -> None:
+        self._lines += ["<statements>"]
+        while self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() in ["let", "if", "while", "do", "return"]:
+            keyword = self._tokenizer.keyword()
+            print(f"keyword: {keyword}")
+            if keyword == "let":
+                self._lines += ["<letStatement>"]
+                self.compileLet()
+                self._lines += ["</letStatement>"]
+            elif keyword == "if":
+                self.compileIf()
+            elif keyword == "while":
+                self._lines += ["<whileStatement>"]
+                self.compileWhile()
+                self._lines += ["</whileStatement>"]
+            elif keyword == "do":
+                self._lines += ["<doStatement>"]
+                self.compileDo()
+                self._lines += ["</doStatement>"]
+            else:
+                self.compileReturn()
+        self._lines += ["</statements>"]
+
+    def compileDo(self) -> None:
+        self._tokenizer.advance()  # skip `do`
+        class_name_or_var_name = self._tokenizer.identifier()
+        self._tokenizer.advance()
+        self._tokenizer.advance()  # skip `.`
+        subroutine_name = self._tokenizer.identifier()
+        self._tokenizer.advance()
+        self._tokenizer.advance()  # skip `(`
+        self._tokenizer.advance()  # skip `)`
+        self._tokenizer.advance()  # skip `;`
+        self._lines += [
+            "<keyword> do </keyword>",
+            f"<identifier> {class_name_or_var_name} </identifier>",
+            "<symbol>.</symbol>",
+            f"<identifier> {subroutine_name} </identifier>",
+            "<symbol> ( </symbol>",
+            "<expressionList>",
+            "</expressionList>",
+            "<symbol> ) </symbol>",
+            "<symbol> ; </symbol>",
+        ]
+
+    def compileLet(self) -> None:
+        self._tokenizer.advance()  # skip `let`
+        var_name = self._tokenizer.identifier()
+        self._tokenizer.advance()
+        self._tokenizer.advance()  # skip `=`
+        self._lines += [
+            "<keyword> let </keyword>",
+            f"<identifier> {var_name} </identifier>",
+            "<symbol> = </symbol>",
+        ]
+        self.compileExpression()
+        self._lines += [
+            "<symbol> ; </symbol>",
+        ]
+        self._tokenizer.advance()
+
+    def compileWhile(self) -> None:
+        pass
+
+    def compileReturn(self) -> None:
+        self._tokenizer.advance()  # skip `return`
+        self._lines += [
+            "<returnStatement>",
+            "<keyword> return </keyword>",
+        ]
+        # TODO: self.compileExpression()
+        self._tokenizer.advance()  # skip `;`
+        self._lines += [
+            "<symbol> ; </symbol>",
+            "</returnStatement>",
+        ]
+
+    def compileIf(self) -> None:
+        self._tokenizer.advance()  # skip `if`
+        self._tokenizer.advance()  # skip `(`
+        self._lines += [
+            "<ifStatement>",
+            "<keyword> if </keyword>",
+            "<symbol> ( </symbol>",
+        ]
+        self.compileExpression()
+        self._tokenizer.advance()  # skip `)`
+        self._tokenizer.advance()  # skip `{`
+        self._lines += [
+            "<symbol> ) </symbol>",
+            "<symbol> { </symbol>",
+        ]
+        self.compileStatements()
+        self._lines += ["<symbol> } </symbol>"]
+        print(f"must be '}}': {self._tokenizer.symbol()}")
+        self._tokenizer.advance()  # skip `}`
+        print(f"tokenTyle:{self._tokenizer.tokenType()} else?: {self._tokenizer.keyword()}")
+        if self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() == "else":
+            self._tokenizer.advance()  # skip `else`
+            self._tokenizer.advance()  # skip `{`
+            self._lines += [
+                "<keyword> else </keyword>",
+                "<symbol> { </symbol>",
+            ]
+            self.compileStatements()
+            self._lines += ["<symbol> } </symbol>"]
+            self._tokenizer.advance()  # skip `}`
+        self._lines += [
+            "</ifStatement>",
+        ]
+
+    def compileExpression(self) -> None:
+        self._lines += ["<expression>"]
+        self.compileTerm()
+        while self._tokenizer.tokenType == _TokenType.SYMBOL and self._tokenizer.symbol() in ["+", "-", "*", "/", "&", "|", "<", ">", "="]:
+            op = self._tokenizer.symbol()
+            self._tokenizer.advance()
+            self._lines += [
+                f"<symbol> {op} </symbol>",
+            ]
+            self.compileTerm()
+        self._lines += ["</expression>"]
+
+    def compileTerm(self) -> None:
+        self._lines += [
+            "<term>",
+            f"<identifier> {self._tokenizer.identifier()} </identifier>",
+            "</term>",
+        ]
+        self._tokenizer.advance()
+
+    def compileExpressionList(self) -> None:
+        pass
 
 
 def main():
+    input_file_or_dir = sys.argv[1]
+    if os.path.isfile(input_file_or_dir):
+        input_files = [input_file_or_dir]
+    else:
+        dir = input_file_or_dir
+        input_files = [f"{dir}/{f}" for f in os.listdir(dir) if f.endswith(".jack")]
+    for input_file in input_files:
+        output_file = f"{os.path.splitext(input_file)[0]}.xml"
+        CompilationEngine(input_file, output_file)
+
+
+def main_orig():
     input_file_or_dir = sys.argv[1]
     if os.path.isfile(input_file_or_dir):
         input_files = [input_file_or_dir]
