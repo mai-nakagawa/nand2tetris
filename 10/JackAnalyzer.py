@@ -278,7 +278,6 @@ class CompilationEngine:
         self._lines += ["<statements>"]
         while self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() in ["let", "if", "while", "do", "return"]:
             keyword = self._tokenizer.keyword()
-            print(f"keyword: {keyword}")
             if keyword == "let":
                 self._lines += ["<letStatement>"]
                 self.compileLet()
@@ -400,9 +399,7 @@ class CompilationEngine:
         ]
         self.compileStatements()
         self._lines += ["<symbol> } </symbol>"]
-        print(f"must be '}}': {self._tokenizer.symbol()}")
         self._tokenizer.advance()  # skip `}`
-        print(f"tokenTyle:{self._tokenizer.tokenType()} else?: {self._tokenizer.keyword()}")
         if self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() == "else":
             self._tokenizer.advance()  # skip `else`
             self._tokenizer.advance()  # skip `{`
@@ -427,6 +424,8 @@ class CompilationEngine:
                 op = "&lt;"
             elif op == ">":
                 op = "&gt;"
+            elif op == "&":
+                op = "&amp;"
             self._lines += [f"<symbol> {op} </symbol>"]
             self.compileTerm()
         self._lines += ["</expression>"]
@@ -439,11 +438,15 @@ class CompilationEngine:
             current_value = self._tokenizer.symbol()
         elif current_token_type == _TokenType.IDENTIFIER:
             current_value = self._tokenizer.identifier()
+        elif current_token_type == _TokenType.INT_CONST:
+            current_value = self._tokenizer.intVal()
+        elif current_token_type == _TokenType.STRING_CONST:
+            current_value = self._tokenizer.stringVal()
         else:
             current_value = self._tokenizer.keyword()
         self._tokenizer.advance()
 
-        if self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() in [".", "("]:
+        if current_token_type == _TokenType.IDENTIFIER and self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() in [".", "("]:
             self._compileSubroutineCall(current_value)
         else:
             if current_token_type == _TokenType.SYMBOL and current_value == "(":
@@ -451,6 +454,9 @@ class CompilationEngine:
                 self.compileExpression()
                 self._lines += [f"<symbol> ) </symbol>"]
                 self._tokenizer.advance()  # skip `)`
+            elif current_token_type == _TokenType.SYMBOL and current_value in ["-", "~"]:
+                self._lines += [f"<symbol> {current_value} </symbol>"]
+                self.compileTerm()
             elif current_token_type == _TokenType.IDENTIFIER:
                 self._lines += [f"<identifier> {current_value} </identifier>"]
                 if self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == "[":
@@ -459,8 +465,6 @@ class CompilationEngine:
                     self.compileExpression()
                     self._lines += [f"<symbol> ] </symbol>"]
                     self._tokenizer.advance()  # skip `]`
-                elif self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() in [".", "("]:
-                    self._compileSubroutineCall()
             elif current_token_type == _TokenType.KEYWORD:
                 self._lines += [f"<keyword> {current_value} </keyword>"]
             elif current_token_type == _TokenType.INT_CONST:
@@ -490,45 +494,6 @@ def main():
     for input_file in input_files:
         output_file = f"{os.path.splitext(input_file)[0]}.xml"
         CompilationEngine(input_file, output_file)
-
-
-def main_orig():
-    input_file_or_dir = sys.argv[1]
-    if os.path.isfile(input_file_or_dir):
-        input_files = [input_file_or_dir]
-    else:
-        dir = input_file_or_dir
-        input_files = [f"{dir}/{f}" for f in os.listdir(dir) if f.endswith(".jack")]
-    for input_file in input_files:
-        with open(f"{os.path.splitext(input_file)[0]}T.xml", "w") as w:
-            tokenizer = JackTokenizer(input_file)
-            lines = ["<tokens>"]
-            while tokenizer.hasMoreTokens():
-                type = tokenizer.tokenType()
-                if type == _TokenType.KEYWORD:
-                    token = tokenizer.keyword()
-                elif type == _TokenType.SYMBOL:
-                    s = tokenizer.symbol()
-                    if s == "<":
-                        token = "&lt;"
-                    elif s == ">":
-                        token = "&gt;"
-                    elif s == "&":
-                        token = "&amp;"
-                    else:
-                        token = s
-                elif type == _TokenType.IDENTIFIER:
-                    token = tokenizer.identifier()
-                elif type == _TokenType.INT_CONST:
-                    token = tokenizer.intVal()
-                else:
-                    token = tokenizer.stringVal()
-                print(f"printing type:{type.value} token:{token}")
-                lines.append(f"<{type.value}> {token} </{type.value}>")
-                tokenizer.advance()
-            lines.append("</tokens>")
-            w.write("\n".join(lines))
-            w.write("\n")
 
 
 if __name__ == "__main__":
