@@ -211,24 +211,20 @@ class CompilationEngine:
     def compileSubroutine(self) -> None:
         constructor_function_or_method = self._tokenizer.keyword()
         self._tokenizer.advance()
-        return_type = self._tokenizer.keyword()
-        self._tokenizer.advance()
+        self._lines += [f"<keyword> {constructor_function_or_method} </keyword>"]
+        self._compileType()
         subroutine_name = self._tokenizer.identifier()
         self._tokenizer.advance()
         self._tokenizer.advance()  # skip `(`
         self._lines += [
-            f"<keyword> {constructor_function_or_method} </keyword>",
-            f"<keyword> {return_type} </keyword>",
             f"<identifier> {subroutine_name} </identifier>",
             "<symbol> ( </symbol>",
-            "<parameterList>",
         ]
         self.compileParameterList()
         self._tokenizer.advance()  # skip `)`
         self._tokenizer.advance()  # skip `{`
         
         self._lines += [
-            "</parameterList>",
             "<symbol> ) </symbol>",
             "<subroutineBody>",
             "<symbol> { </symbol>",
@@ -248,7 +244,18 @@ class CompilationEngine:
         ]
 
     def compileParameterList(self) -> None:
-        pass
+        self._lines += ["<parameterList>"]
+        if not (self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ")"):
+            self._compileType()
+            self._lines += [f"<identifier> {self._tokenizer.identifier()} </identifier>"]
+            self._tokenizer.advance()
+            while self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ",":
+                self._lines += ["<symbol> , </symbol>"]
+                self._tokenizer.advance()
+                self._compileType()
+                self._lines += [f"<identifier> {self._tokenizer.identifier()} </identifier>"]
+                self._tokenizer.advance()
+        self._lines += ["</parameterList>"]
 
     def compileVarDec(self) -> None:
         self._lines += ["<keyword> var </keyword>"]
@@ -279,9 +286,7 @@ class CompilationEngine:
             elif keyword == "if":
                 self.compileIf()
             elif keyword == "while":
-                self._lines += ["<whileStatement>"]
                 self.compileWhile()
-                self._lines += ["</whileStatement>"]
             elif keyword == "do":
                 self._lines += ["<doStatement>"]
                 self.compileDo()
@@ -291,26 +296,31 @@ class CompilationEngine:
         self._lines += ["</statements>"]
 
     def compileDo(self) -> None:
+        self._lines += ["<keyword> do </keyword>"]
         self._tokenizer.advance()  # skip `do`
-        class_name_or_var_name = self._tokenizer.identifier()
-        self._tokenizer.advance()
-        self._tokenizer.advance()  # skip `.`
         subroutine_name = self._tokenizer.identifier()
         self._tokenizer.advance()
+        if self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ".":
+            class_name_or_var_name = subroutine_name
+            self._lines += [
+                f"<identifier> {class_name_or_var_name} </identifier>",
+                "<symbol> . </symbol>",
+            ]
+            self._tokenizer.advance()  # skip `.`
+            subroutine_name = self._tokenizer.identifier()
+            self._tokenizer.advance()  # skip `subroutine_name`
         self._tokenizer.advance()  # skip `(`
-        self._tokenizer.advance()  # skip `)`
-        self._tokenizer.advance()  # skip `;`
         self._lines += [
-            "<keyword> do </keyword>",
-            f"<identifier> {class_name_or_var_name} </identifier>",
-            "<symbol>.</symbol>",
             f"<identifier> {subroutine_name} </identifier>",
             "<symbol> ( </symbol>",
-            "<expressionList>",
-            "</expressionList>",
+        ]
+        self.compileExpressionList()
+        self._lines += [
             "<symbol> ) </symbol>",
             "<symbol> ; </symbol>",
         ]
+        self._tokenizer.advance()  # skip `)`
+        self._tokenizer.advance()  # skip `;`
 
     def compileLet(self) -> None:
         self._tokenizer.advance()  # skip `let`
@@ -329,7 +339,26 @@ class CompilationEngine:
         self._tokenizer.advance()
 
     def compileWhile(self) -> None:
-        pass
+        self._lines += [
+            "<whileStatement>",
+            "<keyword> while </keyword>",
+            "<symbol> ( </symbol>",
+        ]
+        self._tokenizer.advance()  # skip `while`
+        self._tokenizer.advance()  # skip `(`
+        self.compileExpression()
+        self._lines += [
+            "<symbol> ) </symbol>",
+            "<symbol> { </symbol>",
+        ]
+        self._tokenizer.advance()  # skip `)`
+        self._tokenizer.advance()  # skip `{`
+        self.compileStatements()
+        self._lines += [
+            "<symbol> } </symbol>",
+            "</whileStatement>",
+        ]
+        self._tokenizer.advance()  # skip `}`
 
     def compileReturn(self) -> None:
         self._tokenizer.advance()  # skip `return`
@@ -337,7 +366,8 @@ class CompilationEngine:
             "<returnStatement>",
             "<keyword> return </keyword>",
         ]
-        # TODO: self.compileExpression()
+        if self._tokenizer.tokenType() != _TokenType.SYMBOL or self._tokenizer.symbol() != ";":
+            self.compileExpression()
         self._tokenizer.advance()  # skip `;`
         self._lines += [
             "<symbol> ; </symbol>",
@@ -381,7 +411,7 @@ class CompilationEngine:
     def compileExpression(self) -> None:
         self._lines += ["<expression>"]
         self.compileTerm()
-        while self._tokenizer.tokenType == _TokenType.SYMBOL and self._tokenizer.symbol() in ["+", "-", "*", "/", "&", "|", "<", ">", "="]:
+        while self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() in ["+", "-", "*", "/", "&", "|", "<", ">", "="]:
             op = self._tokenizer.symbol()
             self._tokenizer.advance()
             self._lines += [
@@ -391,15 +421,28 @@ class CompilationEngine:
         self._lines += ["</expression>"]
 
     def compileTerm(self) -> None:
-        self._lines += [
-            "<term>",
-            f"<identifier> {self._tokenizer.identifier()} </identifier>",
-            "</term>",
-        ]
+        self._lines += ["<term>"]
+        if self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() in ["(", "["]:
+            self._lines += [f"<symbol> {self._tokenizer.symbol()} </symbol>"]
+            self._tokenizer.advance()
+            self.compileExpression()
+            self._lines += [f"<symbol> {self._tokenizer.symbol()} </symbol>"]
+        elif self._tokenizer.tokenType() == _TokenType.IDENTIFIER:
+            self._lines += [f"<identifier> {self._tokenizer.identifier()} </identifier>"]
+        else:
+            self._lines += [f"<keyword> {self._tokenizer.keyword()} </keyword>"]
+        self._lines += ["</term>"]
         self._tokenizer.advance()
 
     def compileExpressionList(self) -> None:
-        pass
+        self._lines += ["<expressionList>"]
+        if not (self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ")"):
+            self.compileExpression()
+            while self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ",":
+                self._lines += ["<symbol> , </symbol>"]
+                self._tokenizer.advance()
+                self.compileExpression()
+        self._lines += ["</expressionList>"]
 
 
 def main():
