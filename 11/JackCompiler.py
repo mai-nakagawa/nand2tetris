@@ -1,8 +1,8 @@
 import os
 import re
 import sys
-from enum import Enum, auto
-from typing import List
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 STRING_AND_OTHERS = re.compile('([^"]*)"([^"]*)"([^"]*)')
@@ -18,10 +18,10 @@ class _TokenType(Enum):
 
 
 class _Kind(Enum):
-    STATIC = auto()
-    FIELD = auto()
-    ARG = auto()
-    VAR = auto()
+    STATIC = "static"
+    FIELD = "field"
+    ARG = "argument"
+    VAR = "var"
 
 
 class JackTokenizer:
@@ -158,6 +158,7 @@ class JackTokenizer:
 class CompilationEngine:
     def __init__(self, input_file: str, output_file: str):
         self._tokenizer = JackTokenizer(input_file)
+        self._table = SymbolTable()
         
         self._lines = ["<class>"]
         self.compileClass()
@@ -189,33 +190,52 @@ class CompilationEngine:
         self._lines += ["<symbol> } </symbol>"]
         self._tokenizer.advance()
 
+    def _output_identifier(self, category: str, defined_or_used: str, kind: str, index: int) -> None:
+        self._lines += [
+            "<symbol_table>",
+            f"  <category> {category} </category>",
+            f"  <defined_or_used> {defined_or_used} </defined_or_used>",
+            f"  <kind> {kind} </kind>",
+            f"  <index> {index} </index>",
+            "</symbol_table>",
+        ]
 
     def compileClassVarDec(self) -> None:
         static_or_field = self._tokenizer.keyword()
         self._lines += [f"<keyword> {static_or_field} </keyword>"]
         self._tokenizer.advance()
-        self._compileType()
+        t = self._compileType()
         var_name = self._tokenizer.keyword()
         self._lines += [f"<identifier> {var_name} </identifier>"]
         self._tokenizer.advance()
+        self._table.define(var_name, t, static_or_field)
+        self._output_identifier(static_or_field, "defined", static_or_field, self._table.indexOf(var_name))
         while self._tokenizer.symbol() == ",":
             self._tokenizer.advance()  # skip `,`
+            var_name = self._tokenizer.identifier()
             self._lines += [
                 "<symbol> , </symbol>",
-                f"<identifier> {self._tokenizer.identifier()} </identifier>",
+                f"<identifier> {var_name} </identifier>",
             ]
             self._tokenizer.advance()  # skip `,`
+            self._table.define(var_name, t, static_or_field)
+            self._output_identifier(static_or_field, "defined", static_or_field, self._table.indexOf(var_name))
         self._tokenizer.advance()  # skip `;`
         self._lines += ["<symbol> ; </symbol>"]
 
-    def _compileType(self) -> None:
+    def _compileType(self) -> str:
         if self._tokenizer.tokenType() == _TokenType.KEYWORD:
-            self._lines += [f"<keyword> {self._tokenizer.keyword()} </keyword>"]
+            t = self._tokenizer.keyword()
+            self._lines += [f"<keyword> {t} </keyword>"]
         else:
-            self._lines += [f"<identifier> {self._tokenizer.identifier()} </identifier>"]
+            t = self._tokenizer.identifier()
+            self._lines += [f"<identifier> {t} </identifier>"]
         self._tokenizer.advance()
+        return t
+        
 
     def compileSubroutine(self) -> None:
+        self._table.startSubroutine()
         constructor_function_or_method = self._tokenizer.keyword()
         self._tokenizer.advance()
         self._lines += [f"<keyword> {constructor_function_or_method} </keyword>"]
@@ -253,31 +273,42 @@ class CompilationEngine:
     def compileParameterList(self) -> None:
         self._lines += ["<parameterList>"]
         if not (self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ")"):
-            self._compileType()
-            self._lines += [f"<identifier> {self._tokenizer.identifier()} </identifier>"]
+            t = self._compileType()
+            name = self._tokenizer.identifier()
+            self._lines += [f"<identifier> {name} </identifier>"]
             self._tokenizer.advance()
+            self._table.define(name, t, _Kind.ARG.value)
+            self._output_identifier(_Kind.ARG.value, "defined", _Kind.ARG.value, self._table.indexOf(name))
             while self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ",":
                 self._lines += ["<symbol> , </symbol>"]
                 self._tokenizer.advance()
-                self._compileType()
-                self._lines += [f"<identifier> {self._tokenizer.identifier()} </identifier>"]
+                t = self._compileType()
+                name = self._tokenizer.identifier()
+                self._lines += [f"<identifier> {name} </identifier>"]
+                self._table.define(name, t, _Kind.ARG.value)
+                self._output_identifier(_Kind.ARG.value, "defined", _Kind.ARG.value, self._table.indexOf(name))
                 self._tokenizer.advance()
         self._lines += ["</parameterList>"]
 
     def compileVarDec(self) -> None:
         self._lines += ["<keyword> var </keyword>"]
         self._tokenizer.advance()  # skip `var`
-        self._compileType()
+        t = self._compileType()
         var_name = self._tokenizer.identifier()
         self._tokenizer.advance()
         self._lines += [f"<identifier> {var_name} </identifier>"]
+        self._table.define(var_name, t, _Kind.ARG.value)
+        self._output_identifier(_Kind.ARG.value, "defined", _Kind.ARG.value, self._table.indexOf(var_name))
         while self._tokenizer.symbol() == ",":
             self._tokenizer.advance()  # skip `,`
+            var_name = self._tokenizer.identifier()
             self._lines += [
                 "<symbol> , </symbol>",
-                f"<identifier> {self._tokenizer.identifier()} </identifier>",
+                f"<identifier> {var_name} </identifier>",
             ]
             self._tokenizer.advance()
+            self._table.define(var_name, t, _Kind.ARG.value)
+            self._output_identifier(_Kind.ARG.value, "defined", _Kind.ARG.value, self._table.indexOf(var_name))
         self._lines += ["<symbol> ; </symbol>"]
         self._tokenizer.advance()
 
@@ -493,27 +524,70 @@ class CompilationEngine:
 
 class SymbolTable:
     def __init__(self) -> None:
-        self._for_class = {}
-        self._for_subroutine = {}
+        self._table_for_class = {}
+        self._table_for_subroutine = {}
+        self._subroutine_started = False
+        self._indices_for_class = {}
+        self._indices_for_subroutine = {}
+        for kind in _Kind:
+            self._indices_for_class[kind.value] = 0
+        self._reset_table_for_subroutine()
     
-    def startSubroutine(self) -> None:
-        pass
+    def _reset_table_for_subroutine(self) -> None:
+        self._table_for_subroutine = {}
+        self._indices_for_subroutine = {}
+        for kind in _Kind:
+            self._indices_for_subroutine[kind.value] = 0
 
-    def define(self, name: str, type: str, kind: _Kind) -> None:
-        pass
+    def startSubroutine(self) -> None:
+        self._subroutine_started = True
+        self._reset_table_for_subroutine()
+
+    def define(self, name: str, t: str, kind: _Kind) -> None:
+        if self._subroutine_started:
+            table = self._table_for_subroutine
+            indices = self._indices_for_subroutine
+        else:
+            table = self._table_for_class
+            indices = self._indices_for_class
+        index = indices[kind]
+        table[name] = {
+            "type": t,
+            "kind": kind,
+            "index": index,
+        }
+        indices[kind] = index + 1
 
     def varCount(self, kind: _Kind) -> int:
-        pass
+        count = 0
+        if self._subroutine_started:
+            table = self._table_for_subroutine
+        else:
+            table = self._table_for_class
+        for v in table.values():
+            if v["kind"] == kind:
+                count += 1
+        return count
 
-    def kindOf(self, name: str) -> _Kind:
-        pass
+    def kindOf(self, name: str) -> Optional[_Kind]:
+        entry = self._fine(name)
+        if entry:
+            return entry["kind"]
+        else:
+            return None
 
     def typeOf(self, name: str) -> str:
-        pass
+        self._fine(name)["type"]
 
     def indexOf(self, name: str) -> int:
-        pass
+        return self._find(name)["index"]
 
+    def _find(self, name: str) -> Optional[Dict[str, Any]]:
+        if self._subroutine_started:
+            table = self._table_for_subroutine
+        else:
+            table = self._table_for_class
+        return table.get(name, None)
 
 def main():
     input_file_or_dir = sys.argv[1]
