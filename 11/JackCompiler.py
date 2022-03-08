@@ -345,6 +345,7 @@ class CompilationEngine:
         subroutine_name = self._tokenizer.identifier()
         self._tokenizer.advance()  # skip `subroutine_name`
         self._compileSubroutineCall(subroutine_name)
+        self._writer.writePop(_Segment.TEMP, 0)
         self._lines += ["<symbol> ; </symbol>"]
         self._tokenizer.advance()  # skip `;`
 
@@ -425,6 +426,8 @@ class CompilationEngine:
         ]
         if self._tokenizer.tokenType() != _TokenType.SYMBOL or self._tokenizer.symbol() != ";":
             self.compileExpression()
+        else:
+            self._writer.writePush(_Segment.CONST, 0)
         self._tokenizer.advance()  # skip `;`
         self._lines += [
             "<symbol> ; </symbol>",
