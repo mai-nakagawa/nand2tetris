@@ -1,8 +1,8 @@
 import os
 import re
 import sys
-from enum import Enum, auto
-from typing import Any, Dict, List, Optional
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 
 STRING_AND_OTHERS = re.compile('([^"]*)"([^"]*)"([^"]*)')
@@ -27,6 +27,7 @@ class _Kind(Enum):
 class _Segment(Enum):
     CONST = "constant"
     ARG = "argument"
+    LOCAL = "local"
     STATIC = "static"
     THIS = "this"
     THAT = "that"
@@ -79,9 +80,9 @@ class JackTokenizer:
                 s_list.append(f'"{code}"')
         return s_list
 
-    def _to_tokens(self, s: str) -> List[str]:
+    def _to_tokens(self, s: str) -> List[Tuple[str, _TokenType]]:
         s = s.strip()
-        tokens = []
+        tokens: List[Tuple[str, _TokenType]] = []
         if not s:
             return tokens
         elif s.startswith('"'):
@@ -132,7 +133,7 @@ class JackTokenizer:
                         '-', '*', '/', '&', '|', '<', '>', '=', '~']:
                 tokens.append((s, _TokenType.SYMBOL))
             elif INTEGERS.match(s):
-                tokens.append((int(s), _TokenType.INT_CONST))
+                tokens.append((s, _TokenType.INT_CONST))
             else:
                 tokens.append((s, _TokenType.IDENTIFIER))
             return tokens
@@ -156,7 +157,7 @@ class JackTokenizer:
         token_and_token_type = self._tokens[self._index]
         return token_and_token_type[1]
 
-    def keyword(self) -> None:
+    def keyword(self) -> str:
         token_and_token_type = self._tokens[self._index]
         return token_and_token_type[0]
 
@@ -170,7 +171,7 @@ class JackTokenizer:
 
     def intVal(self) -> int:
         token_and_token_type = self._tokens[self._index]
-        return token_and_token_type[0]
+        return int(token_and_token_type[0])
 
     def stringVal(self) -> str:
         token_and_token_type = self._tokens[self._index]
@@ -181,6 +182,10 @@ class CompilationEngine:
     def __init__(self, input_file: str, output_file_prefix: str):
         self._tokenizer = JackTokenizer(input_file)
         self._table = SymbolTable()
+        self._label_indices = {
+            "while": 0,
+            "if": 0,
+        }
 
         self._lines = ["<class>"]
         self._writer = VMWriter(f"{output_file_prefix}.vm")
@@ -209,7 +214,7 @@ class CompilationEngine:
         var_name = self._tokenizer.keyword()
         self._lines += [f"<identifier> {var_name} </identifier>"]
         self._tokenizer.advance()
-        self._table.define(var_name, t, static_or_field)
+        self._table.define(var_name, t, _Kind(static_or_field))
         while self._tokenizer.symbol() == ",":
             self._tokenizer.advance()  # skip `,`
             var_name = self._tokenizer.identifier()
@@ -218,7 +223,7 @@ class CompilationEngine:
                 f"<identifier> {var_name} </identifier>",
             ]
             self._tokenizer.advance()  # skip `,`
-            self._table.define(var_name, t, static_or_field)
+            self._table.define(var_name, t, _Kind(static_or_field))
         self._tokenizer.advance()  # skip `;`
         self._lines += ["<symbol> ; </symbol>"]
 
@@ -284,16 +289,14 @@ class CompilationEngine:
             name = self._tokenizer.identifier()
             self._lines += [f"<identifier> {name} </identifier>"]
             self._tokenizer.advance()
-            self._table.define(name, t, _Kind.ARG.value)
-            self._output_identifier(_Kind.ARG.value, "defined", _Kind.ARG.value, self._table.indexOf(name))
+            self._table.define(name, t, _Kind.ARG)
             while self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ",":
                 self._lines += ["<symbol> , </symbol>"]
                 self._tokenizer.advance()
                 t = self._compileType()
                 name = self._tokenizer.identifier()
                 self._lines += [f"<identifier> {name} </identifier>"]
-                self._table.define(name, t, _Kind.ARG.value)
-                self._output_identifier(_Kind.ARG.value, "defined", _Kind.ARG.value, self._table.indexOf(name))
+                self._table.define(name, t, _Kind.ARG)
                 self._tokenizer.advance()
         self._lines += ["</parameterList>"]
 
@@ -304,8 +307,7 @@ class CompilationEngine:
         var_name = self._tokenizer.identifier()
         self._tokenizer.advance()
         self._lines += [f"<identifier> {var_name} </identifier>"]
-        self._table.define(var_name, t, _Kind.ARG.value)
-        self._output_identifier(_Kind.ARG.value, "defined", _Kind.ARG.value, self._table.indexOf(var_name))
+        self._table.define(var_name, t, _Kind.VAR)
         while self._tokenizer.symbol() == ",":
             self._tokenizer.advance()  # skip `,`
             var_name = self._tokenizer.identifier()
@@ -314,8 +316,7 @@ class CompilationEngine:
                 f"<identifier> {var_name} </identifier>",
             ]
             self._tokenizer.advance()
-            self._table.define(var_name, t, _Kind.ARG.value)
-            self._output_identifier(_Kind.ARG.value, "defined", _Kind.ARG.value, self._table.indexOf(var_name))
+            self._table.define(var_name, t, _Kind.VAR)
         self._lines += ["<symbol> ; </symbol>"]
         self._tokenizer.advance()
 
@@ -394,9 +395,31 @@ class CompilationEngine:
         self._lines += [
             "<symbol> ; </symbol>",
         ]
-        self._tokenizer.advance()
+        self._tokenizer.advance()  # skip `;`
+        self._writeIdentifier(var_name, push_or_pop="pop")
+
+    def _writeIdentifier(self, identifier: str, push_or_pop: str):
+        kind = self._table.kindOf(identifier)
+        print(f"identifier:{identifier} kind:{kind}")
+        if kind == _Kind.ARG:
+            segment = _Segment.ARG
+        elif kind == _Kind.FIELD:
+            segment = _Segment.THIS
+        elif kind == _Kind.STATIC:
+            segment = _Segment.STATIC
+        else:  # kind == _Kind.VAR
+            segment = _Segment.LOCAL
+        print(f"identifier:{identifier} segment:{segment.value}")
+        index = self._table.indexOf(identifier)
+        if push_or_pop == "push":
+            self._writer.writePush(segment, index)
+        else:
+            self._writer.writePop(segment, index)
 
     def compileWhile(self) -> None:
+        label_start = f"WHILE_EXP{self._label_indices['while']}"
+        label_end = f"WHILE_END{self._label_indices['while']}"
+        self._label_indices["while"] += 1
         self._lines += [
             "<whileStatement>",
             "<keyword> while </keyword>",
@@ -404,7 +427,10 @@ class CompilationEngine:
         ]
         self._tokenizer.advance()  # skip `while`
         self._tokenizer.advance()  # skip `(`
+        self._writer.writeLabel(label_start)
         self.compileExpression()
+        self._writer.writeArithmetic(_Command.NOT)
+        self._writer.writeIf(label_end)
         self._lines += [
             "<symbol> ) </symbol>",
             "<symbol> { </symbol>",
@@ -417,6 +443,8 @@ class CompilationEngine:
             "</whileStatement>",
         ]
         self._tokenizer.advance()  # skip `}`
+        self._writer.writeGoto(label_start)
+        self._writer.writeLabel(label_end)
 
     def compileReturn(self) -> None:
         self._tokenizer.advance()  # skip `return`
@@ -436,6 +464,10 @@ class CompilationEngine:
         self._writer.writeReturn()
 
     def compileIf(self) -> None:
+        label_if_true = f"IF_TRUE{self._label_indices['if']}"
+        label_if_false = f"IF_FALSE{self._label_indices['if']}"
+        label_if_end = f"IF_END{self._label_indices['if']}"
+        self._label_indices["if"] += 1
         self._tokenizer.advance()  # skip `if`
         self._tokenizer.advance()  # skip `(`
         self._lines += [
@@ -446,6 +478,9 @@ class CompilationEngine:
         self.compileExpression()
         self._tokenizer.advance()  # skip `)`
         self._tokenizer.advance()  # skip `{`
+        self._writer.writeIf(label_if_true)
+        self._writer.writeGoto(label_if_false)
+        self._writer.writeLabel(label_if_true)
         self._lines += [
             "<symbol> ) </symbol>",
             "<symbol> { </symbol>",
@@ -453,6 +488,8 @@ class CompilationEngine:
         self.compileStatements()
         self._lines += ["<symbol> } </symbol>"]
         self._tokenizer.advance()  # skip `}`
+        self._writer.writeGoto(label_if_end)
+        self._writer.writeLabel(label_if_false)
         if self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() == "else":
             self._tokenizer.advance()  # skip `else`
             self._tokenizer.advance()  # skip `{`
@@ -463,6 +500,7 @@ class CompilationEngine:
             self.compileStatements()
             self._lines += ["<symbol> } </symbol>"]
             self._tokenizer.advance()  # skip `}`
+        self._writer.writeLabel(label_if_end)
         self._lines += [
             "</ifStatement>",
         ]
@@ -474,12 +512,14 @@ class CompilationEngine:
             op = self._tokenizer.symbol()
             self._tokenizer.advance()
             if op == "<":
-                op = "&lt;"
+                new_op = "&lt;"
             elif op == ">":
-                op = "&gt;"
+                new_op = "&gt;"
             elif op == "&":
-                op = "&amp;"
-            self._lines += [f"<symbol> {op} </symbol>"]
+                new_op = "&amp;"
+            else:
+                new_op = op
+            self._lines += [f"<symbol> {new_op} </symbol>"]
             self.compileTerm()
             if op in ["+", "-", "&", "|", "<", ">", "="]:
                 if op == "<":
@@ -496,7 +536,7 @@ class CompilationEngine:
                     command = _Command.EQ
                 else:  # op == "|"
                     command = _Command.OR
-                self._writer.writeArithmetic(command.value)
+                self._writer.writeArithmetic(command)
             else:  # op in ["*", "/"]
                 if op == "*":
                     f_name = "Math.multiply"
@@ -514,7 +554,7 @@ class CompilationEngine:
         elif current_token_type == _TokenType.IDENTIFIER:
             current_value = self._tokenizer.identifier()
         elif current_token_type == _TokenType.INT_CONST:
-            current_value = self._tokenizer.intVal()
+            current_value = str(self._tokenizer.intVal())
         elif current_token_type == _TokenType.STRING_CONST:
             current_value = self._tokenizer.stringVal()
         else:
@@ -545,8 +585,13 @@ class CompilationEngine:
                     self.compileExpression()
                     self._lines += [f"<symbol> ] </symbol>"]
                     self._tokenizer.advance()  # skip `]`
+                self._writeIdentifier(current_value, push_or_pop="push")
             elif current_token_type == _TokenType.KEYWORD:
                 self._lines += [f"<keyword> {current_value} </keyword>"]
+                if current_value in ["true", "false"]:
+                    self._writer.writePush(_Segment.CONST, 0)
+                    if current_value == "true":
+                        self._writer.writeArithmetic(_Command.NOT)
             elif current_token_type == _TokenType.INT_CONST:
                 self._lines += [f"<integerConstant> {current_value} </integerConstant>"]
                 self._writer.writePush(_Segment.CONST, int(current_value))
@@ -571,26 +616,28 @@ class CompilationEngine:
 
 class SymbolTable:
     def __init__(self) -> None:
-        self._table_for_class = {}
-        self._table_for_subroutine = {}
+        self._table_for_class: Dict[str, Dict[str, Any]] = {}
+        self._table_for_subroutine: Dict[str, Dict[str, Any]] = {}
         self._subroutine_started = False
-        self._indices_for_class = {}
-        self._indices_for_subroutine = {}
+        self._indices_for_class: Dict[_Kind, int] = {}
+        self._indices_for_subroutine: Dict[_Kind, int] = {}
         for kind in _Kind:
-            self._indices_for_class[kind.value] = 0
+            self._indices_for_class[kind] = 0
         self._reset_table_for_subroutine()
     
     def _reset_table_for_subroutine(self) -> None:
+        print("_reset_table_for_subroutine")
         self._table_for_subroutine = {}
         self._indices_for_subroutine = {}
         for kind in _Kind:
-            self._indices_for_subroutine[kind.value] = 0
+            self._indices_for_subroutine[kind] = 0
 
     def startSubroutine(self) -> None:
         self._subroutine_started = True
         self._reset_table_for_subroutine()
 
     def define(self, name: str, t: str, kind: _Kind) -> None:
+        print(f"defining {name} {t} {kind.value}")
         if self._subroutine_started:
             table = self._table_for_subroutine
             indices = self._indices_for_subroutine
@@ -617,17 +664,24 @@ class SymbolTable:
         return count
 
     def kindOf(self, name: str) -> Optional[_Kind]:
-        entry = self._fine(name)
+        entry = self._find(name)
+        print(f"found {name} -> {entry}")
         if entry:
             return entry["kind"]
         else:
             return None
 
     def typeOf(self, name: str) -> str:
-        self._fine(name)["type"]
+        entry = self._find(name)
+        if not entry:
+            raise Exception(f"Can't find {name}")
+        return entry["type"]
 
     def indexOf(self, name: str) -> int:
-        return self._find(name)["index"]
+        entry = self._find(name)
+        if not entry:
+            raise Exception(f"Can't find {name}")
+        return entry["index"]
 
     def _find(self, name: str) -> Optional[Dict[str, Any]]:
         if self._subroutine_started:
@@ -642,31 +696,31 @@ class VMWriter:
         self._writer = open(output_file, "w")
 
     def writePush(self, segment: _Segment, index: int) -> None:
-        self._writer.write(f"  push {segment.value} {index}")
+        self._writer.write(f"push {segment.value} {index}")
         self._writer.write("\n")
 
     def writePop(self, segment: _Segment, index: int) -> None:
-        self._writer.write(f"  pop {segment.value} {index}")
+        self._writer.write(f"pop {segment.value} {index}")
         self._writer.write("\n")
 
     def writeArithmetic(self, command: _Command) -> None:
-        self._writer.write(f"  {command}")
+        self._writer.write(f"{command.value}")
         self._writer.write("\n")
 
     def writeLabel(self, label: str) -> None:
-        self._writer.write(f"{label}:")
+        self._writer.write(f"label {label}")
         self._writer.write("\n")
 
     def writeGoto(self, label: str) -> None:
-        self._writer.write(f"  goto {label}")
+        self._writer.write(f"goto {label}")
         self._writer.write("\n")
 
     def writeIf(self, label: str) -> None:
-        self._writer.write(f"  if-goto {label}")
+        self._writer.write(f"if-goto {label}")
         self._writer.write("\n")
 
     def writeCall(self, name: str, nArgs: int) -> None:
-        self._writer.write(f"  call {name} {nArgs}")
+        self._writer.write(f"call {name} {nArgs}")
         self._writer.write("\n")
 
     def writeFunction(self, name: str, nLocals: int) -> None:
@@ -674,7 +728,7 @@ class VMWriter:
         self._writer.write("\n")
 
     def writeReturn(self) -> None:
-        self._writer.write("  return")
+        self._writer.write("return")
         self._writer.write("\n")
 
     def close(self) -> None:
