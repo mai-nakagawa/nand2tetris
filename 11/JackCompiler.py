@@ -431,7 +431,6 @@ class CompilationEngine:
 
     def _writeIdentifier(self, identifier: str, push_or_pop: str):
         kind = self._table.kindOf(identifier)
-        print(f"identifier:{identifier} kind:{kind}")
         if kind == _Kind.ARG:
             segment = _Segment.ARG
         elif kind == _Kind.FIELD:
@@ -440,7 +439,6 @@ class CompilationEngine:
             segment = _Segment.STATIC
         else:  # kind == _Kind.VAR
             segment = _Segment.LOCAL
-        print(f"identifier:{identifier} segment:{segment.value}")
         index = self._table.indexOf(identifier)
         if push_or_pop == "push":
             self._writer.writePush(segment, index)
@@ -671,7 +669,6 @@ class SymbolTable:
         self._reset_table_for_subroutine()
     
     def _reset_table_for_subroutine(self) -> None:
-        print("_reset_table_for_subroutine")
         self._table_for_subroutine = {}
         self._indices_for_subroutine = {}
         for kind in _Kind:
@@ -682,7 +679,6 @@ class SymbolTable:
         self._reset_table_for_subroutine()
 
     def define(self, name: str, t: str, kind: _Kind) -> None:
-        print(f"defining {name} {t} {kind.value}")
         if self._subroutine_started:
             table = self._table_for_subroutine
             indices = self._indices_for_subroutine
@@ -710,7 +706,6 @@ class SymbolTable:
 
     def kindOf(self, name: str) -> Optional[_Kind]:
         entry = self._find(name)
-        print(f"found {name} -> {entry}")
         if entry:
             return entry["kind"]
         else:
