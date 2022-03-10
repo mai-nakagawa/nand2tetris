@@ -238,6 +238,8 @@ class CompilationEngine:
         return t
 
     def compileSubroutine(self) -> None:
+        self._label_indices["if"] = 0
+        self._label_indices["while"] = 0
         self._table.startSubroutine()
         constructor_function_or_method = self._tokenizer.keyword()
         self._tokenizer.advance()
@@ -265,14 +267,17 @@ class CompilationEngine:
             self._lines += ["</varDec>"]
 
         n_locals = self._table.varCount(_Kind.VAR)
-        if constructor_function_or_method == "constructor":
-            # TODO
-            pass
+        if constructor_function_or_method in "constructor":
+            self._writer.writeFunction(f"{self._class}.{subroutine_name}", n_locals)
+            self._writer.writePush(_Segment.CONST, self._table.varCount(_Kind.FIELD))
+            self._writer.writeCall("Memory.alloc", 1)
+            self._writer.writePop(_Segment.POINTER, 0)
         elif constructor_function_or_method == "function":
             self._writer.writeFunction(f"{self._class}.{subroutine_name}", n_locals)
-        else:
-            # TODO
-            pass
+        else:  # method
+            self._writer.writeFunction(f"{self._class}.{subroutine_name}", n_locals)
+            self._writer.writePush(_Segment.ARG, 0)
+            self._writer.writePop(_Segment.POINTER, 0)
 
         self.compileStatements()
 
@@ -371,7 +376,20 @@ class CompilationEngine:
         num_expressions = self.compileExpressionList()
         self._lines += ["<symbol> ) </symbol>"]
         self._tokenizer.advance()  # skip `)`
-        self._writer.writeCall(full_subroutine_name, num_expressions)
+        if full_subroutine_name.find(".") != -1:
+            class_or_instance_name, subroutine_name = full_subroutine_name.split(".")
+            kind = self._table.kindOf(class_or_instance_name)
+            if kind:
+                if kind == _Kind.VAR:
+                    self._writer.writePush(_Segment.LOCAL, self._table.indexOf(class_or_instance_name))
+                elif kind == _Kind.FIELD:
+                    self._writer.writePush(_Segment.THIS, self._table.indexOf(class_or_instance_name))
+                self._writer.writeCall(f"{self._table.typeOf(class_or_instance_name)}.{subroutine_name}", num_expressions + 1)
+            else:
+                self._writer.writeCall(full_subroutine_name, num_expressions)
+        else:
+            self._writer.writePush(_Segment.POINTER, 0)
+            self._writer.writeCall(f"{self._class}.{full_subroutine_name}", num_expressions + 1)
 
     def compileLet(self) -> None:
         self._tokenizer.advance()  # skip `let`
@@ -488,7 +506,8 @@ class CompilationEngine:
         self.compileStatements()
         self._lines += ["<symbol> } </symbol>"]
         self._tokenizer.advance()  # skip `}`
-        self._writer.writeGoto(label_if_end)
+        if self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() == "else":
+            self._writer.writeGoto(label_if_end)
         self._writer.writeLabel(label_if_false)
         if self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() == "else":
             self._tokenizer.advance()  # skip `else`
@@ -500,7 +519,7 @@ class CompilationEngine:
             self.compileStatements()
             self._lines += ["<symbol> } </symbol>"]
             self._tokenizer.advance()  # skip `}`
-        self._writer.writeLabel(label_if_end)
+            self._writer.writeLabel(label_if_end)
         self._lines += [
             "</ifStatement>",
         ]
@@ -592,6 +611,8 @@ class CompilationEngine:
                     self._writer.writePush(_Segment.CONST, 0)
                     if current_value == "true":
                         self._writer.writeArithmetic(_Command.NOT)
+                elif current_value == "this":
+                    self._writer.writePush(_Segment.POINTER, 0)
             elif current_token_type == _TokenType.INT_CONST:
                 self._lines += [f"<integerConstant> {current_value} </integerConstant>"]
                 self._writer.writePush(_Segment.CONST, int(current_value))
@@ -654,7 +675,7 @@ class SymbolTable:
 
     def varCount(self, kind: _Kind) -> int:
         count = 0
-        if self._subroutine_started:
+        if self._subroutine_started and kind in [_Kind.ARG, _Kind.VAR]:
             table = self._table_for_subroutine
         else:
             table = self._table_for_class
@@ -686,8 +707,10 @@ class SymbolTable:
     def _find(self, name: str) -> Optional[Dict[str, Any]]:
         if self._subroutine_started:
             table = self._table_for_subroutine
-        else:
-            table = self._table_for_class
+            entry = table.get(name, None)
+            if entry:
+                return entry
+        table = self._table_for_class
         return table.get(name, None)
 
 
