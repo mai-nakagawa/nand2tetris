@@ -399,12 +399,16 @@ class CompilationEngine:
             "<keyword> let </keyword>",
             f"<identifier> {var_name} </identifier>",
         ]
+        array = False
         if self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == "[":
+            array = True
             self._lines += ["<symbol> [ </symbol>"]
             self._tokenizer.advance()
             self.compileExpression()
             self._lines += ["<symbol> ] </symbol>"]
             self._tokenizer.advance()
+            self._writeIdentifier(var_name, push_or_pop="push")
+            self._writer.writeArithmetic(_Command.ADD)
         self._lines += [
             "<symbol> = </symbol>",
         ]
@@ -414,7 +418,13 @@ class CompilationEngine:
             "<symbol> ; </symbol>",
         ]
         self._tokenizer.advance()  # skip `;`
-        self._writeIdentifier(var_name, push_or_pop="pop")
+        if array:
+            self._writer.writePop(_Segment.TEMP, 0)
+            self._writer.writePop(_Segment.POINTER, 1)
+            self._writer.writePush(_Segment.TEMP, 0)
+            self._writer.writePop(_Segment.THAT, 0)
+        else:
+            self._writeIdentifier(var_name, push_or_pop="pop")
 
     def _writeIdentifier(self, identifier: str, push_or_pop: str):
         kind = self._table.kindOf(identifier)
@@ -598,13 +608,19 @@ class CompilationEngine:
                 self._writer.writeArithmetic(command)
             elif current_token_type == _TokenType.IDENTIFIER:
                 self._lines += [f"<identifier> {current_value} </identifier>"]
+                array = False
                 if self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == "[":
+                    array = True
                     self._lines += [f"<symbol> [ </symbol>"]
                     self._tokenizer.advance()
                     self.compileExpression()
                     self._lines += [f"<symbol> ] </symbol>"]
                     self._tokenizer.advance()  # skip `]`
                 self._writeIdentifier(current_value, push_or_pop="push")
+                if array:
+                    self._writer.writeArithmetic(_Command.ADD)
+                    self._writer.writePop(_Segment.POINTER, 1)
+                    self._writer.writePush(_Segment.THAT, 0)
             elif current_token_type == _TokenType.KEYWORD:
                 self._lines += [f"<keyword> {current_value} </keyword>"]
                 if current_value in ["true", "false"]:
@@ -618,6 +634,11 @@ class CompilationEngine:
                 self._writer.writePush(_Segment.CONST, int(current_value))
             elif current_token_type == _TokenType.STRING_CONST:
                 self._lines += [f"<stringConstant> {current_value} </stringConstant>"]
+                self._writer.writePush(_Segment.CONST, len(current_value))
+                self._writer.writeCall("String.new", 1)
+                for c in current_value:
+                    self._writer.writePush(_Segment.CONST, ord(c))
+                    self._writer.writeCall("String.appendChar", 2)
         self._lines += ["</term>"]
 
     def compileExpressionList(self) -> int:
