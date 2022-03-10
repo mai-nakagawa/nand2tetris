@@ -186,14 +186,9 @@ class CompilationEngine:
             "while": 0,
             "if": 0,
         }
-
-        self._lines = ["<class>"]
         self._writer = VMWriter(f"{output_file_prefix}.vm")
         self._class = os.path.basename(os.path.splitext(input_file)[0])
         self.compileClass()
-        self._lines += ["</class>"]
-        with open(f"{output_file_prefix}.xml", "w") as writer:
-            writer.write("\n".join(self._lines))
         self._writer.close()
 
     def compileClass(self) -> None:
@@ -208,32 +203,23 @@ class CompilationEngine:
 
     def compileClassVarDec(self) -> None:
         static_or_field = self._tokenizer.keyword()
-        self._lines += [f"<keyword> {static_or_field} </keyword>"]
         self._tokenizer.advance()
         t = self._compileType()
         var_name = self._tokenizer.keyword()
-        self._lines += [f"<identifier> {var_name} </identifier>"]
         self._tokenizer.advance()
         self._table.define(var_name, t, _Kind(static_or_field))
         while self._tokenizer.symbol() == ",":
             self._tokenizer.advance()  # skip `,`
             var_name = self._tokenizer.identifier()
-            self._lines += [
-                "<symbol> , </symbol>",
-                f"<identifier> {var_name} </identifier>",
-            ]
             self._tokenizer.advance()  # skip `,`
             self._table.define(var_name, t, _Kind(static_or_field))
         self._tokenizer.advance()  # skip `;`
-        self._lines += ["<symbol> ; </symbol>"]
 
     def _compileType(self) -> str:
         if self._tokenizer.tokenType() == _TokenType.KEYWORD:
             t = self._tokenizer.keyword()
-            self._lines += [f"<keyword> {t} </keyword>"]
         else:
             t = self._tokenizer.identifier()
-            self._lines += [f"<identifier> {t} </identifier>"]
         self._tokenizer.advance()
         return t
 
@@ -247,26 +233,14 @@ class CompilationEngine:
         subroutine_name = self._tokenizer.identifier()
         self._tokenizer.advance()  # skip subroutine name
         self._tokenizer.advance()  # skip `(`
-        self._lines += [
-            f"<identifier> {subroutine_name} </identifier>",
-            "<symbol> ( </symbol>",
-        ]
         if constructor_function_or_method == "method":
             self._table.define("this", self._class, _Kind.ARG)
         self.compileParameterList()
         self._tokenizer.advance()  # skip `)`
         self._tokenizer.advance()  # skip `{`
-        
-        self._lines += [
-            "<symbol> ) </symbol>",
-            "<subroutineBody>",
-            "<symbol> { </symbol>",
-        ]
 
         while self._tokenizer.keyword() == "var":
-            self._lines += ["<varDec>"]
             self.compileVarDec()
-            self._lines += ["</varDec>"]
 
         n_locals = self._table.varCount(_Kind.VAR)
         if constructor_function_or_method in "constructor":
@@ -284,86 +258,58 @@ class CompilationEngine:
         self.compileStatements()
 
         self._tokenizer.advance()  # skip `}`
-        self._lines += [
-            "<symbol> } </symbol>",
-            "</subroutineBody>",
-        ]
 
     def compileParameterList(self) -> None:
-        self._lines += ["<parameterList>"]
         if not (self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ")"):
             t = self._compileType()
             name = self._tokenizer.identifier()
-            self._lines += [f"<identifier> {name} </identifier>"]
             self._tokenizer.advance()
             self._table.define(name, t, _Kind.ARG)
             while self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ",":
-                self._lines += ["<symbol> , </symbol>"]
                 self._tokenizer.advance()
                 t = self._compileType()
                 name = self._tokenizer.identifier()
-                self._lines += [f"<identifier> {name} </identifier>"]
                 self._table.define(name, t, _Kind.ARG)
                 self._tokenizer.advance()
-        self._lines += ["</parameterList>"]
 
     def compileVarDec(self) -> None:
-        self._lines += ["<keyword> var </keyword>"]
         self._tokenizer.advance()  # skip `var`
         t = self._compileType()
         var_name = self._tokenizer.identifier()
         self._tokenizer.advance()
-        self._lines += [f"<identifier> {var_name} </identifier>"]
         self._table.define(var_name, t, _Kind.VAR)
         while self._tokenizer.symbol() == ",":
             self._tokenizer.advance()  # skip `,`
             var_name = self._tokenizer.identifier()
-            self._lines += [
-                "<symbol> , </symbol>",
-                f"<identifier> {var_name} </identifier>",
-            ]
             self._tokenizer.advance()
             self._table.define(var_name, t, _Kind.VAR)
-        self._lines += ["<symbol> ; </symbol>"]
-        self._tokenizer.advance()
+        self._tokenizer.advance()  # skip `;`
 
     def compileStatements(self) -> None:
-        self._lines += ["<statements>"]
         while self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() in ["let", "if", "while", "do", "return"]:
             keyword = self._tokenizer.keyword()
             if keyword == "let":
-                self._lines += ["<letStatement>"]
                 self.compileLet()
-                self._lines += ["</letStatement>"]
             elif keyword == "if":
                 self.compileIf()
             elif keyword == "while":
                 self.compileWhile()
             elif keyword == "do":
-                self._lines += ["<doStatement>"]
                 self.compileDo()
-                self._lines += ["</doStatement>"]
             else:
                 self.compileReturn()
-        self._lines += ["</statements>"]
 
     def compileDo(self) -> None:
-        self._lines += ["<keyword> do </keyword>"]
         self._tokenizer.advance()  # skip `do`
         subroutine_name = self._tokenizer.identifier()
         self._tokenizer.advance()  # skip `subroutine_name`
         self._compileSubroutineCall(subroutine_name)
         self._writer.writePop(_Segment.TEMP, 0)
-        self._lines += ["<symbol> ; </symbol>"]
         self._tokenizer.advance()  # skip `;`
 
     def _compileSubroutineCall(self, subroutine_name: str) -> None:
         if self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ".":
             class_name_or_var_name = subroutine_name
-            self._lines += [
-                f"<identifier> {class_name_or_var_name} </identifier>",
-                "<symbol> . </symbol>",
-            ]
             self._tokenizer.advance()  # skip `.`
             subroutine_name = self._tokenizer.identifier()
             self._tokenizer.advance()  # skip `subroutine_name`
@@ -378,12 +324,7 @@ class CompilationEngine:
             self._writer.writePush(_Segment.POINTER, 0)
             full_subroutine_name = subroutine_name
         self._tokenizer.advance()  # skip `(`
-        self._lines += [
-            f"<identifier> {subroutine_name} </identifier>",
-            "<symbol> ( </symbol>",
-        ]
         num_expressions = self.compileExpressionList()
-        self._lines += ["<symbol> ) </symbol>"]
         self._tokenizer.advance()  # skip `)`
         if full_subroutine_name.find(".") != -1:
             class_or_instance_name, subroutine_name = full_subroutine_name.split(".")
@@ -398,28 +339,16 @@ class CompilationEngine:
         self._tokenizer.advance()  # skip `let`
         var_name = self._tokenizer.identifier()
         self._tokenizer.advance()        
-        self._lines += [
-            "<keyword> let </keyword>",
-            f"<identifier> {var_name} </identifier>",
-        ]
         array = False
         if self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == "[":
             array = True
-            self._lines += ["<symbol> [ </symbol>"]
-            self._tokenizer.advance()
+            self._tokenizer.advance()  # skip `[`
             self.compileExpression()
-            self._lines += ["<symbol> ] </symbol>"]
-            self._tokenizer.advance()
+            self._tokenizer.advance()  # skip `]`
             self._writeIdentifier(var_name, push_or_pop="push")
             self._writer.writeArithmetic(_Command.ADD)
-        self._lines += [
-            "<symbol> = </symbol>",
-        ]
         self._tokenizer.advance()  # skip `=`
         self.compileExpression()
-        self._lines += [
-            "<symbol> ; </symbol>",
-        ]
         self._tokenizer.advance()  # skip `;`
         if array:
             self._writer.writePop(_Segment.TEMP, 0)
@@ -449,47 +378,26 @@ class CompilationEngine:
         label_start = f"WHILE_EXP{self._label_indices['while']}"
         label_end = f"WHILE_END{self._label_indices['while']}"
         self._label_indices["while"] += 1
-        self._lines += [
-            "<whileStatement>",
-            "<keyword> while </keyword>",
-            "<symbol> ( </symbol>",
-        ]
         self._tokenizer.advance()  # skip `while`
         self._tokenizer.advance()  # skip `(`
         self._writer.writeLabel(label_start)
         self.compileExpression()
         self._writer.writeArithmetic(_Command.NOT)
         self._writer.writeIf(label_end)
-        self._lines += [
-            "<symbol> ) </symbol>",
-            "<symbol> { </symbol>",
-        ]
         self._tokenizer.advance()  # skip `)`
         self._tokenizer.advance()  # skip `{`
         self.compileStatements()
-        self._lines += [
-            "<symbol> } </symbol>",
-            "</whileStatement>",
-        ]
         self._tokenizer.advance()  # skip `}`
         self._writer.writeGoto(label_start)
         self._writer.writeLabel(label_end)
 
     def compileReturn(self) -> None:
         self._tokenizer.advance()  # skip `return`
-        self._lines += [
-            "<returnStatement>",
-            "<keyword> return </keyword>",
-        ]
         if self._tokenizer.tokenType() != _TokenType.SYMBOL or self._tokenizer.symbol() != ";":
             self.compileExpression()
         else:
             self._writer.writePush(_Segment.CONST, 0)
         self._tokenizer.advance()  # skip `;`
-        self._lines += [
-            "<symbol> ; </symbol>",
-            "</returnStatement>",
-        ]
         self._writer.writeReturn()
 
     def compileIf(self) -> None:
@@ -499,23 +407,13 @@ class CompilationEngine:
         self._label_indices["if"] += 1
         self._tokenizer.advance()  # skip `if`
         self._tokenizer.advance()  # skip `(`
-        self._lines += [
-            "<ifStatement>",
-            "<keyword> if </keyword>",
-            "<symbol> ( </symbol>",
-        ]
         self.compileExpression()
         self._tokenizer.advance()  # skip `)`
         self._tokenizer.advance()  # skip `{`
         self._writer.writeIf(label_if_true)
         self._writer.writeGoto(label_if_false)
         self._writer.writeLabel(label_if_true)
-        self._lines += [
-            "<symbol> ) </symbol>",
-            "<symbol> { </symbol>",
-        ]
         self.compileStatements()
-        self._lines += ["<symbol> } </symbol>"]
         self._tokenizer.advance()  # skip `}`
         if self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() == "else":
             self._writer.writeGoto(label_if_end)
@@ -523,33 +421,15 @@ class CompilationEngine:
         if self._tokenizer.tokenType() == _TokenType.KEYWORD and self._tokenizer.keyword() == "else":
             self._tokenizer.advance()  # skip `else`
             self._tokenizer.advance()  # skip `{`
-            self._lines += [
-                "<keyword> else </keyword>",
-                "<symbol> { </symbol>",
-            ]
             self.compileStatements()
-            self._lines += ["<symbol> } </symbol>"]
             self._tokenizer.advance()  # skip `}`
             self._writer.writeLabel(label_if_end)
-        self._lines += [
-            "</ifStatement>",
-        ]
 
     def compileExpression(self) -> None:
-        self._lines += ["<expression>"]
         self.compileTerm()
         while self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() in ["+", "-", "*", "/", "&", "|", "<", ">", "="]:
             op = self._tokenizer.symbol()
             self._tokenizer.advance()
-            if op == "<":
-                new_op = "&lt;"
-            elif op == ">":
-                new_op = "&gt;"
-            elif op == "&":
-                new_op = "&amp;"
-            else:
-                new_op = op
-            self._lines += [f"<symbol> {new_op} </symbol>"]
             self.compileTerm()
             if op in ["+", "-", "&", "|", "<", ">", "="]:
                 if op == "<":
@@ -573,11 +453,8 @@ class CompilationEngine:
                 else:
                     f_name = "Math.divide"
                 self._writer.writeCall(f_name, 2)
-        self._lines += ["</expression>"]
 
     def compileTerm(self) -> None:
-        self._lines += ["<term>"]
-
         current_token_type = self._tokenizer.tokenType()
         if current_token_type == _TokenType.SYMBOL:
             current_value = self._tokenizer.symbol()
@@ -595,12 +472,9 @@ class CompilationEngine:
             self._compileSubroutineCall(current_value)
         else:
             if current_token_type == _TokenType.SYMBOL and current_value == "(":
-                self._lines += [f"<symbol> ( </symbol>"]
                 self.compileExpression()
-                self._lines += [f"<symbol> ) </symbol>"]
                 self._tokenizer.advance()  # skip `)`
             elif current_token_type == _TokenType.SYMBOL and current_value in ["-", "~"]:
-                self._lines += [f"<symbol> {current_value} </symbol>"]
                 self.compileTerm()
                 if current_value == "-":
                     command = _Command.NEG
@@ -608,14 +482,11 @@ class CompilationEngine:
                     command = _Command.NOT
                 self._writer.writeArithmetic(command)
             elif current_token_type == _TokenType.IDENTIFIER:
-                self._lines += [f"<identifier> {current_value} </identifier>"]
                 array = False
                 if self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == "[":
                     array = True
-                    self._lines += [f"<symbol> [ </symbol>"]
-                    self._tokenizer.advance()
+                    self._tokenizer.advance()  # skip `[`
                     self.compileExpression()
-                    self._lines += [f"<symbol> ] </symbol>"]
                     self._tokenizer.advance()  # skip `]`
                 self._writeIdentifier(current_value, push_or_pop="push")
                 if array:
@@ -623,7 +494,6 @@ class CompilationEngine:
                     self._writer.writePop(_Segment.POINTER, 1)
                     self._writer.writePush(_Segment.THAT, 0)
             elif current_token_type == _TokenType.KEYWORD:
-                self._lines += [f"<keyword> {current_value} </keyword>"]
                 if current_value in ["true", "false", "null"]:
                     self._writer.writePush(_Segment.CONST, 0)
                     if current_value == "true":
@@ -631,29 +501,23 @@ class CompilationEngine:
                 elif current_value == "this":
                     self._writer.writePush(_Segment.POINTER, 0)
             elif current_token_type == _TokenType.INT_CONST:
-                self._lines += [f"<integerConstant> {current_value} </integerConstant>"]
                 self._writer.writePush(_Segment.CONST, int(current_value))
             elif current_token_type == _TokenType.STRING_CONST:
-                self._lines += [f"<stringConstant> {current_value} </stringConstant>"]
                 self._writer.writePush(_Segment.CONST, len(current_value))
                 self._writer.writeCall("String.new", 1)
                 for c in current_value:
                     self._writer.writePush(_Segment.CONST, ord(c))
                     self._writer.writeCall("String.appendChar", 2)
-        self._lines += ["</term>"]
 
     def compileExpressionList(self) -> int:
-        self._lines += ["<expressionList>"]
         num_expressions = 0
         if not (self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ")"):
             self.compileExpression()
             num_expressions += 1
             while self._tokenizer.tokenType() == _TokenType.SYMBOL and self._tokenizer.symbol() == ",":
-                self._lines += ["<symbol> , </symbol>"]
-                self._tokenizer.advance()
+                self._tokenizer.advance()  # skip `,`
                 self.compileExpression()
                 num_expressions += 1
-        self._lines += ["</expressionList>"]
         return num_expressions
 
 
