@@ -626,7 +626,7 @@ class CompilationEngine:
                     self._writer.writePush(_Segment.THAT, 0)
             elif current_token_type == _TokenType.KEYWORD:
                 self._lines += [f"<keyword> {current_value} </keyword>"]
-                if current_value in ["true", "false"]:
+                if current_value in ["true", "false", "null"]:
                     self._writer.writePush(_Segment.CONST, 0)
                     if current_value == "true":
                         self._writer.writeArithmetic(_Command.NOT)
