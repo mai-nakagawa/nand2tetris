@@ -251,6 +251,8 @@ class CompilationEngine:
             f"<identifier> {subroutine_name} </identifier>",
             "<symbol> ( </symbol>",
         ]
+        if constructor_function_or_method == "method":
+            self._table.define("this", self._class, _Kind.ARG)
         self.compileParameterList()
         self._tokenizer.advance()  # skip `)`
         self._tokenizer.advance()  # skip `{`
@@ -366,7 +368,14 @@ class CompilationEngine:
             subroutine_name = self._tokenizer.identifier()
             self._tokenizer.advance()  # skip `subroutine_name`
             full_subroutine_name = f"{class_name_or_var_name}.{subroutine_name}"
+            kind = self._table.kindOf(class_name_or_var_name)
+            if kind:
+                if kind == _Kind.VAR:
+                    self._writer.writePush(_Segment.LOCAL, self._table.indexOf(class_name_or_var_name))
+                elif kind == _Kind.FIELD:
+                    self._writer.writePush(_Segment.THIS, self._table.indexOf(class_name_or_var_name))
         else:
+            self._writer.writePush(_Segment.POINTER, 0)
             full_subroutine_name = subroutine_name
         self._tokenizer.advance()  # skip `(`
         self._lines += [
@@ -378,17 +387,11 @@ class CompilationEngine:
         self._tokenizer.advance()  # skip `)`
         if full_subroutine_name.find(".") != -1:
             class_or_instance_name, subroutine_name = full_subroutine_name.split(".")
-            kind = self._table.kindOf(class_or_instance_name)
-            if kind:
-                if kind == _Kind.VAR:
-                    self._writer.writePush(_Segment.LOCAL, self._table.indexOf(class_or_instance_name))
-                elif kind == _Kind.FIELD:
-                    self._writer.writePush(_Segment.THIS, self._table.indexOf(class_or_instance_name))
+            if self._table.kindOf(class_or_instance_name):
                 self._writer.writeCall(f"{self._table.typeOf(class_or_instance_name)}.{subroutine_name}", num_expressions + 1)
             else:
                 self._writer.writeCall(full_subroutine_name, num_expressions)
         else:
-            self._writer.writePush(_Segment.POINTER, 0)
             self._writer.writeCall(f"{self._class}.{full_subroutine_name}", num_expressions + 1)
 
     def compileLet(self) -> None:
