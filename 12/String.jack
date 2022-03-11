@@ -11,54 +11,147 @@
  * string-oriented operations.
  */
 class String {
+    field int length;
+    field Array s;
 
     /** constructs a new empty string with a maximum length of maxLength
      *  and initial length of 0. */
     constructor String new(int maxLength) {
+        if (maxLength = 0) {
+            let s = null;
+        } else {
+            let s = Array.new(maxLength);
+        }
+        let length = 0;
+        return this;
     }
 
     /** Disposes this string. */
     method void dispose() {
+        if (~(s = null)) {
+            do s.dispose();
+        }
+        return;
     }
 
     /** Returns the current length of this string. */
     method int length() {
+        return length;
     }
 
     /** Returns the character at the j-th location of this string. */
     method char charAt(int j) {
+        return s[j];
     }
 
     /** Sets the character at the j-th location of this string to c. */
     method void setCharAt(int j, char c) {
+        let s[j] = c;
+        return;
     }
 
     /** Appends c to this string's end and returns this string. */
     method String appendChar(char c) {
+        let s[length] = c;
+        let length = length + 1;
+        return this;
     }
 
     /** Erases the last character from this string. */
     method void eraseLastChar() {
+        let length = length - 1;
+        return;
     }
 
     /** Returns the integer value of this string, 
      *  until a non-digit character is detected. */
     method int intValue() {
+        var int d, i, v;
+        var boolean neg;
+        let i = 0;
+        let v = 0;
+        let neg = false;
+        while (i < length) {
+            let d = s[i];
+            if (d = 45) { 
+                let neg = true;
+            } else {
+                if (d = 48) { let d = 0; }
+                if (d = 49) { let d = 1; }
+                if (d = 50) { let d = 2; }
+                if (d = 51) { let d = 3; }
+                if (d = 52) { let d = 4; }
+                if (d = 53) { let d = 5; }
+                if (d = 54) { let d = 6; }
+                if (d = 55) { let d = 7; }
+                if (d = 56) { let d = 8; }
+                if (d = 57) { let d = 9; }
+                let v = v * 10 + d;
+            }
+            let i = i + 1;
+        }
+        if (neg) {
+            let v = -v;
+        }
+        return v;
     }
 
     /** Sets this string to hold a representation of the given value. */
     method void setInt(int val) {
+        var int i, lastDigit;
+        var boolean neg;
+        var char c;
+        let length = 0;
+        let neg = false;
+        if (val < 0) {
+            let val = Math.abs(val);
+            let neg = true;
+        }
+        while (val > 0) {
+            let lastDigit = val - ((val / 10) * 10);
+            if (lastDigit = 0) { let c = 48; }
+            if (lastDigit = 1) { let c = 49; }
+            if (lastDigit = 2) { let c = 50; }
+            if (lastDigit = 3) { let c = 51; }
+            if (lastDigit = 4) { let c = 52; }
+            if (lastDigit = 5) { let c = 53; }
+            if (lastDigit = 6) { let c = 54; }
+            if (lastDigit = 7) { let c = 55; }
+            if (lastDigit = 8) { let c = 56; }
+            if (lastDigit = 9) { let c = 57; }
+            let length = length + 1;
+            let i = length - 1;
+            while (i > 0) {
+                let s[i] = s[i-1];
+                let i = i - 1;
+            }
+            let s[0] = c;
+            let val = val / 10;
+        }
+        if (neg) {
+            let length = length + 1;
+            let i = length - 1;
+            while (i > 0) {
+                let s[i] = s[i-1];
+                let i = i - 1;
+            }
+            let s[0] = 45; // ascii '-'
+        }
+        return;
     }
 
     /** Returns the new line character. */
     function char newLine() {
+        return 128;
     }
 
     /** Returns the backspace character. */
     function char backSpace() {
+        return 129;
     }
 
     /** Returns the double quote (") character. */
     function char doubleQuote() {
+        return 34;
     }
 }
