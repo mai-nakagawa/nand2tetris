@@ -79,8 +79,30 @@ class Math {
 
     /** Returns the integer part of the square root of x. */
     function int sqrt(int x) {
-        // TODO
-        return x;
+        var int i, j, n, y, val;
+        let x = x - 1;  // to make sure stack can store `x` even if it's `32767(10)`
+        let n = 0;
+        let j = 1;
+        while (~(x < (j - 1))) {
+            let j = j + j;
+            let n = n + 1;
+        }
+        let j = Math.divide(n, 2);
+        let y = 0;
+        while (~(j < 0)) {
+            let i = j;
+            let n = 1;
+            while (i > 0) {
+                let n = n + n;
+                let i = i - 1;
+            }
+            let val = ((y + n) * (y + n)) - 1;
+            if ((~(val > x)) & (val > 0)) {
+                let y = y + n;
+            }
+            let j = j - 1;
+        }
+        return y;
     }
 
     /** Returns the greater number. */
