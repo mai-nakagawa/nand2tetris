@@ -17,10 +17,16 @@
 class Output {
 
     // Character map for displaying characters
-    static Array charMaps; 
+    static Array charMaps;
+    static int line, column;
 
     /** Initializes the screen, and locates the cursor at the screen's top-left. */
     function void init() {
+        do Output.initMap();
+        do Screen.clearScreen();
+        let line = 0;
+        let column = 0;
+        return;
     }
 
     // Initializes the character map array
@@ -71,7 +77,7 @@ class Output {
         do Output.create(64,30,51,51,59,59,59,27,3,30,0,0);  // @
         do Output.create(63,30,51,51,24,12,12,0,12,12,0,0);  // ?
 
-        do Output.create(65,0,0,0,0,0,0,0,0,0,0,0);          // A ** TO BE FILLED **
+        do Output.create(65,12,30,51,51,63,51,51,51,51,0,0); // A
         do Output.create(66,31,51,51,51,31,51,51,51,31,0,0); // B
         do Output.create(67,28,54,35,3,3,3,35,54,28,0,0);    // C
         do Output.create(68,15,27,51,51,51,51,51,27,15,0,0); // D
@@ -137,15 +143,15 @@ class Output {
         do Output.create(125,7,12,12,12,56,12,12,12,7,0,0);    // }
         do Output.create(126,38,45,25,0,0,0,0,0,0,0,0);        // ~
 
-	return;
+	    return;
     }
 
     // Creates the character map array of the given character index, using the given values.
     function void create(int index, int a, int b, int c, int d, int e,
                          int f, int g, int h, int i, int j, int k) {
-	var Array map;
+        var Array map;
 
-	let map = Array.new(11);
+        let map = Array.new(11);
         let charMaps[index] = map;
 
         let map[0] = a;
@@ -176,28 +182,90 @@ class Output {
     /** Moves the cursor to the j-th column of the i-th row,
      *  and erases the character displayed there. */
     function void moveCursor(int i, int j) {
+        do Output.drawCursor(false);
+        let line = i;
+        let column = j;
+        do Output.drawCursor(true);
+        return;
+    }
+
+    function void drawCursor(boolean draw) {
+        do Screen.setColor(draw);
+        do Screen.drawRectangle(column * 8, line * 11, (column * 8) + 7, (line * 11) + 10);
+        return;
     }
 
     /** Displays the given character at the cursor location,
      *  and advances the cursor one column forward. */
     function void printChar(char c) {
+        var int i, j, bit;
+        var Array map;
+        let map = Output.getMap(c);
+        do Output.drawCursor(false);
+        let i = 0;
+        do Screen.setColor(true);
+        while (i < 11) {
+            let j = 0;
+            let bit = 1;
+            while (j < 8) {
+                if (~((map[i] & bit) = 0)) {
+                    do Screen.drawPixel((column * 8) + j, (line * 11) + i);
+                }
+                let j = j + 1;
+                let bit = bit + bit;
+            }
+            let i = i + 1;
+        }
+        if (column = 63) {
+            let column = 0;
+            if (line = 22) {
+                let line = 0;
+            } else {
+                let line = line + 1;
+            }
+        } else {
+            let column = column + 1;
+        }
+        do Output.drawCursor(true);
+        return;
     }
 
     /** displays the given string starting at the cursor location,
      *  and advances the cursor appropriately. */
     function void printString(String s) {
+        var int i;
+        var char c;
+        let i = 0;
+        while (i < s.length()) {
+            let c = s.charAt(i);
+            do Output.printChar(c);
+            let i = i + 1;
+        }
+        return;
     }
 
     /** Displays the given integer starting at the cursor location,
      *  and advances the cursor appropriately. */
     function void printInt(int i) {
+        var String s;
+        let s = String.new(100);
+        do s.setInt(i);
+        do Output.printString(s);
+        do s.dispose();
+        return;
     }
 
     /** Advances the cursor to the beginning of the next line. */
     function void println() {
+        do Output.moveCursor(line + 1, 0);
+        return;
     }
 
     /** Moves the cursor one column back. */
     function void backSpace() {
+        if (column > 0) {
+            do Output.moveCursor(line, column - 1);
+        }
+        return;
     }
 }
